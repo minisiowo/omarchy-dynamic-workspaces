@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "id": "minisiowo.dynamic-workspaces",
+  "name": "Dynamic Workspaces",
+  "version": "0.3.0",
+  "author": "Dominik Mikolajczyk",
+  "license": "MIT",
+  "description": "Profile-aware workspace management for changing monitor setups.",
+  "kinds": [
+    "service",
+    "bar-widget"
+  ],
+  "keepLoaded": true,
+  "activation": "on-demand",
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Dynamic Workspaces",
+    "description": "A control icon and a grouped workspace display, selectable per widget instance.",
+    "category": "Compositor",
+    "aliases": [
+      "workspaces",
+      "monitor-profiles"
+    ],
+    "defaultSection": "left",
+    "allowMultiple": true,
+    "defaults": {
+      "mode": "Control",
+      "icon": "󰕰"
+    },
+    "schema": [
+      {
+        "key": "mode",
+        "type": "enum",
+        "label": "Widget mode",
+        "options": [
+          "Control",
+          "Workspaces"
+        ],
+        "defaultValue": "Control",
+        "description": "Control shows the panel icon. Workspaces renders configured groups at the existing workspace position."
+      },
+      {
+        "key": "icon",
+        "type": "string",
+        "label": "Panel icon",
+        "defaultValue": "󰕰",
+        "description": "Any text, emoji, or Nerd Font glyph displayed on the bar."
+      }
+    ]
+  }
+}
