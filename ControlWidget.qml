@@ -33,14 +33,25 @@ BarWidget {
     && root.service.applyEnabled === true
     && root.service.hookInstalled !== true
   readonly property bool applyStatusUrgent: (root.service && root.service.applyError !== "") || applyNeedsHook
+  // The absolute path is long enough to wrap onto a second line and turn the
+  // status into a paragraph, so it is shown the way a shell would write it.
+  readonly property string rulesPathShort: {
+    if (!root.service) return ""
+    var path = String(root.service.rulesPath)
+    var home = String(root.service.home)
+    return home !== "" && path.indexOf(home) === 0 ? "~" + path.slice(home.length) : path
+  }
+
+  // The switch's own row states what applying does, so this line adds only what
+  // the switch cannot: failures, the missing hook, and when it last ran.
   readonly property string applyStatusText: {
     if (!root.service) return ""
     if (root.service.applyError !== "") return "Hyprland error: " + root.service.applyError
-    if (!root.service.applyEnabled) return "Preview only — Hyprland keeps the workspace rules from your own config."
+    if (!root.service.applyEnabled) return ""
     if (!root.service.hookInstalled) return "Rules are written, but your Hyprland config does not load them yet."
     var at = Number(root.service.appliedAt)
-    if (!isFinite(at) || at <= 0) return "Applied through " + root.service.rulesPath
-    return "Applied " + Qt.formatDateTime(new Date(at), "HH:mm:ss") + " through " + root.service.rulesPath
+    if (!isFinite(at) || at <= 0) return "Applied through " + root.rulesPathShort
+    return "Applied " + Qt.formatDateTime(new Date(at), "HH:mm:ss") + " through " + root.rulesPathShort
   }
 
   function open() { popupOpen = true }
@@ -135,69 +146,20 @@ BarWidget {
           width: panelFlick.width
           spacing: Style.space(12)
 
-          // The hero's trailingControl is instantiated inside PanelHero, where a
-          // bare `root` resolves to the hero rather than to this widget, so the
-          // switch reaches this widget's state through `heroBlock`.
-          Item {
-            id: heroBlock
+          PanelHero {
             width: parent.width
-            implicitHeight: hero.implicitHeight
+            title: "Dynamic Workspaces"
+            meta: root.service ? root.service.activeProfileName : "Loading…"
+            detail: root.service && root.service.activeProfileMode === "exact" ? "SAVED" : ""
+            foreground: root.panelForeground
+            fontFamily: root.panelFont
 
-            readonly property bool applyEnabled: root.service ? root.service.applyEnabled === true : false
-            readonly property color foreground: root.panelForeground
-            readonly property string fontFamily: root.panelFont
-
-            function toggleApply() {
-              if (root.service) root.service.setApply(!root.service.applyEnabled)
-            }
-
-            PanelHero {
-              id: hero
-              width: parent.width
-              title: "Dynamic Workspaces"
-              meta: root.service ? root.service.activeProfileName : "Loading…"
-              detail: root.service && root.service.activeProfileMode === "exact" ? "SAVED" : ""
-              foreground: root.panelForeground
-              fontFamily: root.panelFont
-
-              iconComponent: Component {
-                Text {
-                  text: root.configuredIcon
-                  color: root.panelForeground
-                  font.family: root.panelFont
-                  font.pixelSize: Style.font.display
-                }
-              }
-
-              trailingControl: Component {
-                Row {
-                  spacing: Style.spacing.controlGap
-
-                  Text {
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: "APPLY"
-                    color: Qt.darker(heroBlock.foreground, 1.4)
-                    font.family: heroBlock.fontFamily
-                    font.pixelSize: Style.font.caption
-                    font.bold: true
-                  }
-
-                  ToggleSwitch {
-                    id: applySwitch
-                    anchors.verticalCenter: parent.verticalCenter
-                    checked: heroBlock.applyEnabled
-                    foreground: heroBlock.foreground
-                    onToggled: heroBlock.toggleApply()
-
-                    PanelToolTip {
-                      visible: applySwitch.containsMouse
-                      text: heroBlock.applyEnabled
-                        ? "Stop applying workspace assignments"
-                        : "Apply workspace assignments to Hyprland"
-                      fontFamily: heroBlock.fontFamily
-                    }
-                  }
-                }
+            iconComponent: Component {
+              Text {
+                text: root.configuredIcon
+                color: root.panelForeground
+                font.family: root.panelFont
+                font.pixelSize: Style.font.display
               }
             }
           }
@@ -250,6 +212,108 @@ BarWidget {
                 onClicked: {
                   if (root.service && root.service.saveCurrentSetup(profileNameEditor.text))
                     profileNameEditor.text = "My monitor setup"
+                }
+              }
+            }
+          }
+
+          PanelSeparator { foreground: root.panelForeground }
+
+          // Applying is a setting with a state and a consequence, not a title-bar
+          // affordance, so it gets a section of its own rather than a third
+          // element competing with the title and the SAVED pill in the hero.
+          // Its status and the missing-hook hint live here too, next to the
+          // switch they describe.
+          Column {
+            width: parent.width
+            spacing: Style.spacing.labelGap
+
+            PanelSectionHeader {
+              text: "APPLY TO HYPRLAND"
+              foreground: root.panelForeground
+              fontFamily: root.panelFont
+            }
+
+            RowLayout {
+              width: parent.width
+              spacing: Style.spacing.controlGap
+
+              ToggleSwitch {
+                id: applySwitch
+                Layout.alignment: Qt.AlignVCenter
+                checked: root.service ? root.service.applyEnabled === true : false
+                foreground: root.panelForeground
+                onToggled: if (root.service) root.service.setApply(!root.service.applyEnabled)
+
+                PanelToolTip {
+                  visible: applySwitch.containsMouse
+                  text: root.service && root.service.applyEnabled
+                    ? "Stop applying workspace assignments"
+                    : "Apply workspace assignments to Hyprland"
+                  fontFamily: root.panelFont
+                }
+              }
+
+              Text {
+                Layout.fillWidth: true
+                Layout.alignment: Qt.AlignVCenter
+                text: root.service && root.service.applyEnabled
+                  ? "Hyprland follows this profile."
+                  : "Hyprland keeps the workspace rules from your own config."
+                color: root.panelForeground
+                wrapMode: Text.WordWrap
+                font.family: root.panelFont
+                font.pixelSize: Style.font.bodySmall
+              }
+            }
+
+            Text {
+              width: parent.width
+              visible: text !== ""
+              text: root.applyStatusText
+              color: root.applyStatusUrgent ? (root.bar ? root.bar.urgent : Color.urgent) : root.panelDim
+              wrapMode: Text.WordWrap
+              font.family: root.panelFont
+              font.pixelSize: Style.font.caption
+            }
+
+            // Hyprland runs the generated module only once the user's own config
+            // loads it. The plugin will not edit ~/.config/hypr itself, so the
+            // missing line is shown here to be copied.
+            Rectangle {
+              width: parent.width
+              visible: root.applyNeedsHook
+              implicitHeight: hookText.implicitHeight + Style.space(20)
+              color: Qt.rgba(root.panelForeground.r, root.panelForeground.g, root.panelForeground.b, 0.05)
+              radius: Style.cornerRadius
+
+              Column {
+                id: hookText
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.margins: Style.space(10)
+                spacing: Style.spacing.labelGap
+
+                Text {
+                  width: parent.width
+                  text: "Add this line to ~/.config/hypr/hyprland.lua:"
+                  color: root.panelForeground
+                  wrapMode: Text.WordWrap
+                  font.family: root.panelFont
+                  font.pixelSize: Style.font.caption
+                }
+
+                TextEdit {
+                  width: parent.width
+                  text: root.service ? root.service.hookLine : ""
+                  color: Color.accent
+                  readOnly: true
+                  selectByMouse: true
+                  wrapMode: Text.WrapAnywhere
+                  selectionColor: Style.selectionFillFor(root.panelForeground, Color.accent)
+                  font.family: root.panelFont
+                  font.pixelSize: Style.font.caption
                 }
               }
             }
@@ -392,68 +456,13 @@ BarWidget {
 
           PanelSeparator { foreground: root.panelForeground }
 
-          Column {
+          Text {
             width: parent.width
-            spacing: Style.space(6)
-
-            Text {
-              width: parent.width
-              text: "Drag a chip to reorder it or move it to another monitor. Click a chip to rename it."
-              color: root.panelDim
-              wrapMode: Text.WordWrap
-              font.family: root.panelFont
-              font.pixelSize: Style.font.caption
-            }
-
-            Text {
-              width: parent.width
-              text: root.applyStatusText
-              color: root.applyStatusUrgent ? (root.bar ? root.bar.urgent : Color.urgent) : root.panelDim
-              wrapMode: Text.WordWrap
-              font.family: root.panelFont
-              font.pixelSize: Style.font.caption
-            }
-
-            // Hyprland runs the generated module only once the user's own config
-            // loads it. The plugin will not edit ~/.config/hypr itself, so the
-            // missing line is shown here to be copied.
-            Rectangle {
-              width: parent.width
-              visible: root.applyNeedsHook
-              implicitHeight: hookText.implicitHeight + Style.space(20)
-              color: Qt.rgba(root.panelForeground.r, root.panelForeground.g, root.panelForeground.b, 0.05)
-              radius: Style.cornerRadius
-
-              Column {
-                id: hookText
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.top: parent.top
-                anchors.margins: Style.space(10)
-                spacing: Style.spacing.labelGap
-
-                Text {
-                  width: parent.width
-                  text: "Add this line to ~/.config/hypr/hyprland.lua:"
-                  color: root.panelForeground
-                  wrapMode: Text.WordWrap
-                  font.family: root.panelFont
-                  font.pixelSize: Style.font.caption
-                }
-
-                TextEdit {
-                  width: parent.width
-                  text: root.service ? root.service.hookLine : ""
-                  color: Color.accent
-                  readOnly: true
-                  selectByMouse: true
-                  wrapMode: Text.WrapAnywhere
-                  selectionColor: Style.selectionFillFor(root.panelForeground, Color.accent)
-                  font.family: root.panelFont
-                  font.pixelSize: Style.font.caption
-                }
-              }
-            }
+            text: "Drag a chip to reorder it or move it to another monitor. Click a chip to rename it."
+            color: root.panelDim
+            wrapMode: Text.WordWrap
+            font.family: root.panelFont
+            font.pixelSize: Style.font.caption
           }
         }
       }
