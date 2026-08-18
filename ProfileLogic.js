@@ -182,6 +182,42 @@ function resolveGroups(profile, orderedDescriptions) {
   return groups
 }
 
+// Writes the allocation the default profile is currently showing into its own
+// assignments, turning an implicit layout into an explicit one.
+//
+// Editing an automatically assigned monitor is otherwise incoherent: the
+// editing functions all reason about explicit assignments, so they would place
+// a workspace the allocation has already handed out, and pinning one monitor
+// changes the pool the others draw from — touching one card renumbers the rest.
+// Materializing first means an edit lands on exactly what the user is looking
+// at, and every later edit behaves like it would on an exact profile.
+//
+// A profile that allocates nothing is returned unchanged, so this is safe to
+// call before any edit without checking the profile's mode first.
+function materializeFallback(config, profileId, orderedDescriptions) {
+  var next = copy(normalizedConfig(config))
+  var index = profileIndex(next, profileId)
+  if (index < 0) return next
+
+  var profile = next.profiles[index]
+  if (!isFallbackProfile(profile)) return next
+
+  var groups = resolveGroups(profile, orderedDescriptions)
+  var assignments = copy(asObject(profile.assignments))
+  var changed = false
+
+  for (var i = 0; i < groups.length; i++) {
+    if (!groups[i].automatic) continue
+    assignments[groups[i].description] = groups[i].workspaces
+    changed = true
+  }
+
+  if (!changed) return next
+
+  profile.assignments = assignments
+  return next
+}
+
 function workspaceLabel(profile, workspaceId) {
   var labels = asObject(profile ? profile.labels : null)
   var value = labels[String(workspaceId)]
@@ -363,8 +399,16 @@ function monitorSelector(monitorDescription) {
 function rulesProfile(profile) {
   var assignments = asObject(profile ? profile.assignments : null)
   var groups = []
+  var keys = []
 
-  for (var monitorDescription in assignments) {
+  for (var key in assignments) keys.push(key)
+  // Sorted so the generated module is a function of what the config says, not
+  // of the order its keys happen to sit in. Reordering keys by hand would
+  // otherwise rewrite rules.lua and reload Hyprland for no semantic change.
+  keys.sort()
+
+  for (var keyIndex = 0; keyIndex < keys.length; keyIndex++) {
+    var monitorDescription = keys[keyIndex]
     var description = String(monitorDescription || "")
     // "*" used to be a display-time wildcard; the default profile's own
     // allocation replaced it. Configs written before that may still carry the

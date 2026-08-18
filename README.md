@@ -2,7 +2,7 @@
 
 A profile-aware workspace manager for monitor setups that change throughout the day.
 
-> **Status:** `0.4.0`. Profiles are editable, persisted, and — once the switch in the panel is on and the one-line hook is in place — applied to Hyprland.
+> **Status:** `0.4.1`. Profiles are editable, persisted, and — once the switch in the panel is on and the one-line hook is in place — applied to Hyprland.
 
 ## Current behavior
 
@@ -52,6 +52,12 @@ To see exactly what would be handed to Hyprland without applying anything:
 
 ```bash
 qs -p /usr/share/omarchy/shell/shell.qml ipc call minisiowo.dynamic-workspaces.service preview
+```
+
+The same target opens and closes the panel — useful for a Hyprland keybinding:
+
+```bash
+qs -p /usr/share/omarchy/shell/shell.qml ipc call minisiowo.dynamic-workspaces.service toggle
 ```
 
 ## Development install
@@ -121,7 +127,7 @@ One unknown monitor gets `1 2 3`; two get `1 2 3` and `4 5 6`; three get a third
 
 Assignments you write by hand still win, and their ids are reserved — the automatic blocks route around them rather than colliding. With `"Home Screen": [1, 5]` pinned and two unknown monitors either side of it, the result is `2 3 4`, then `1 5`, then `6 7 8`.
 
-The panel marks an automatically assigned monitor with an **AUTO** badge. Editing that monitor's workspaces pins it: the assignment is written to the profile and stops being automatic.
+The panel marks an automatically assigned monitor with an **AUTO** badge. Editing any of them writes the whole visible layout into the profile at once, and the badges disappear — from then on the default profile behaves like an exact one. It has to work that way: the allocation is recomputed from the stored assignments, so pinning a single monitor would change the pool the others draw from and renumber them out from under you.
 
 Because the monitors are unknown until Hyprland reports them — and a workspace rule's monitor cannot be changed once the rule exists — the generated module carries the allocation rule itself and builds the rules when the monitors appear, rather than shipping pre-computed groups.
 

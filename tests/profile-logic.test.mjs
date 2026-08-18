@@ -247,3 +247,100 @@ assert.match(fallbackRules, /local function ordered_monitors\(\)/)
 assert.match(fallbackRules, /fallback\.id \.\. "\\31" \.\. current/)
 
 console.log("fallback allocation: ok")
+
+// ------------------------------------------------- materializing the fallback
+//
+// Editing an automatically assigned monitor has to act on what the user sees.
+// The allocation is recomputed from the stored assignments every time, so
+// pinning one monitor changes the pool the others draw from; writing the whole
+// visible layout down first is what keeps an edit from renumbering the rest.
+
+const autoProfile = {
+  version: 1,
+  profiles: [{
+    id: "default",
+    name: "Default",
+    match: { mode: "default" },
+    assignments: {},
+    labels: {}
+  }]
+}
+
+const screens = ["Screen A", "Screen B"]
+const materialized = context.materializeFallback(autoProfile, "default", screens)
+
+// What was allocated is now stored, unchanged.
+assert.deepEqual(plain(materialized.profiles[0].assignments), {
+  "Screen A": [1, 2, 3],
+  "Screen B": [4, 5, 6]
+})
+
+// And nothing is automatic any more, so the panel drops its AUTO badges.
+assert.deepEqual(
+  plain(context.resolveGroups(materialized.profiles[0], screens)).map(group => group.automatic),
+  [false, false]
+)
+
+// The ids the profile resolves to are identical before and after — that is the
+// whole point: materializing must be invisible except for pinning.
+assert.deepEqual(
+  allocation(materialized.profiles[0], screens),
+  allocation(autoProfile.profiles[0], screens)
+)
+
+// The bug this fixes: on the unmaterialized profile the next free id is 1,
+// which is already on screen, so "+" would collide and renumber every monitor.
+assert.equal(context.nextWorkspaceId(autoProfile.profiles[0]), 1)
+assert.equal(context.nextWorkspaceId(materialized.profiles[0]), 7)
+
+// The source config is untouched, and materializing twice changes nothing.
+assert.deepEqual(plain(autoProfile.profiles[0].assignments), {})
+assert.deepEqual(
+  plain(context.materializeFallback(materialized, "default", screens).profiles[0].assignments),
+  plain(materialized.profiles[0].assignments)
+)
+
+// Explicit assignments survive, and only the automatic monitors are written.
+const partly = {
+  version: 1,
+  profiles: [{ id: "default", match: { mode: "default" }, assignments: { "Pinned": [1, 5] } }]
+}
+assert.deepEqual(
+  plain(context.materializeFallback(partly, "default", ["Unknown A", "Pinned"]).profiles[0].assignments),
+  { "Pinned": [1, 5], "Unknown A": [2, 3, 4] }
+)
+
+// An exact profile allocates nothing, so this is a no-op on it — which is why
+// the service can call it before every edit without checking the mode.
+const exactUntouched = {
+  version: 1,
+  profiles: [{ id: "e", match: { mode: "exact", monitors: ["Known"] }, assignments: { "Known": [1] } }]
+}
+assert.deepEqual(
+  plain(context.materializeFallback(exactUntouched, "e", ["Known", "Stranger"]).profiles[0].assignments),
+  { "Known": [1] }
+)
+
+// ------------------------------------------- generated module is canonical
+//
+// Key order in config.json must not reach rules.lua: otherwise reordering keys
+// by hand rewrites the file and reloads Hyprland for no semantic change.
+const orderOne = context.withApplySettings({
+  version: 1,
+  profiles: [{
+    id: "p",
+    match: { mode: "exact", monitors: ["B", "A"] },
+    assignments: { "B": [3], "A": [1] }
+  }]
+}, { enabled: true })
+const orderTwo = context.withApplySettings({
+  version: 1,
+  profiles: [{
+    id: "p",
+    match: { mode: "exact", monitors: ["B", "A"] },
+    assignments: { "A": [1], "B": [3] }
+  }]
+}, { enabled: true })
+assert.equal(context.renderRules(orderOne, {}), context.renderRules(orderTwo, {}))
+
+console.log("fallback materialization: ok")
