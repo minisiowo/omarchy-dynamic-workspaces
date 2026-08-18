@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import Quickshell.Hyprland
 import Quickshell.Io
 import "ProfileLogic.js" as ProfileLogic
 
@@ -10,8 +11,28 @@ Item {
   property bool configLoaded: false
   property string configError: ""
   property var config: fallbackConfig()
-  property var activeMonitors: []
-  property var activeWorkspaces: []
+
+  // Plain snapshots of the compositor's monitor list rather than the live
+  // HyprlandMonitor objects: everything downstream only needs identity and
+  // position, and copying them keeps this list changing when monitors change
+  // instead of whenever anything on a monitor does.
+  readonly property var activeMonitors: {
+    var result = []
+    var values = Hyprland.monitors.values
+
+    for (var i = 0; i < values.length; i++) {
+      var monitor = values[i]
+      if (!monitor) continue
+      result.push({
+        name: String(monitor.name || ""),
+        description: String(monitor.description || ""),
+        x: Number(monitor.x || 0),
+        y: Number(monitor.y || 0)
+      })
+    }
+
+    return result
+  }
 
   property string applyError: ""
   property bool reloadPending: false
@@ -42,6 +63,15 @@ Item {
   readonly property string activeProfileMode: activeProfile && activeProfile.match ? String(activeProfile.match.mode || "") : ""
   readonly property string activeDivider: activeProfile ? String(activeProfile.divider === undefined ? "|" : activeProfile.divider) : "|"
   readonly property var groups: buildGroups()
+
+  // Panel open/close arrives here rather than at the bar widget. A widget-level
+  // IPC target is claimed by whichever instance registers first, and the bar
+  // assigns widget settings twice — an empty object, then the real entry — so a
+  // Workspaces-mode slot briefly instantiates a ControlWidget that can win the
+  // target and then be destroyed, leaving the route pointing at nothing. The
+  // service is one object per shell, so its target is unambiguous; it names the
+  // action and lets the panels decide which of them is on screen.
+  signal panelRequested(string action)
 
   visible: false
   width: 0
@@ -89,30 +119,47 @@ Item {
     configSaveTimer.restart()
   }
 
+  // Every edit goes through here first. On the default profile the layout on
+  // screen is allocated rather than stored, so it is written down before the
+  // edit lands — otherwise the edit would be applied to assignments that do
+  // not yet describe what the user is looking at.
+  function editableConfig() {
+    if (root.activeProfileMode !== "default") return root.config
+    return ProfileLogic.materializeFallback(root.config, root.activeProfileId, root.orderedDescriptions())
+  }
+
   function moveWorkspaceAt(workspaceId, monitorDescription, targetIndex) {
     if (root.activeProfileId === "") return
-    applyConfig(ProfileLogic.moveWorkspaceAt(root.config, root.activeProfileId, workspaceId, monitorDescription, targetIndex))
+    applyConfig(ProfileLogic.moveWorkspaceAt(root.editableConfig(), root.activeProfileId, workspaceId, monitorDescription, targetIndex))
   }
 
   function moveWorkspace(workspaceId, monitorDescription) {
     moveWorkspaceAt(workspaceId, monitorDescription, undefined)
   }
 
+  // The next free id has to be read from the materialized profile: on the
+  // default profile the visible workspaces are allocated, not assigned, so
+  // asking the stored assignments would hand back an id already on screen.
   function addWorkspace(monitorDescription) {
     if (!root.activeProfile) return 0
-    var workspaceId = ProfileLogic.nextWorkspaceId(root.activeProfile)
+
+    var next = root.editableConfig()
+    var index = ProfileLogic.profileIndex(next, root.activeProfileId)
+    if (index < 0) return 0
+
+    var workspaceId = ProfileLogic.nextWorkspaceId(next.profiles[index])
     moveWorkspace(workspaceId, monitorDescription)
     return workspaceId
   }
 
   function removeWorkspace(workspaceId) {
     if (root.activeProfileId === "") return
-    applyConfig(ProfileLogic.removeWorkspace(root.config, root.activeProfileId, workspaceId))
+    applyConfig(ProfileLogic.removeWorkspace(root.editableConfig(), root.activeProfileId, workspaceId))
   }
 
   function setWorkspaceLabel(workspaceId, label) {
     if (root.activeProfileId === "") return
-    applyConfig(ProfileLogic.setWorkspaceLabel(root.config, root.activeProfileId, workspaceId, label))
+    applyConfig(ProfileLogic.setWorkspaceLabel(root.editableConfig(), root.activeProfileId, workspaceId, label))
   }
 
   function setDivider(divider) {
@@ -120,6 +167,9 @@ Item {
     applyConfig(ProfileLogic.setDivider(root.config, root.activeProfileId, divider))
   }
 
+  // Read imperatively, at the moment the setup is saved: the live workspace
+  // list is not something the profile should track, only something to snapshot
+  // once when the user asks for it.
   function assignmentsFromCurrentWorkspaces() {
     var assignments = {}
     var monitorNames = {}
@@ -132,10 +182,12 @@ Item {
       monitorNames[String(monitor.name || "")] = description
     }
 
-    for (var workspaceIndex = 0; workspaceIndex < root.activeWorkspaces.length; workspaceIndex++) {
-      var workspace = root.activeWorkspaces[workspaceIndex]
+    var workspaces = Hyprland.workspaces.values
+    for (var workspaceIndex = 0; workspaceIndex < workspaces.length; workspaceIndex++) {
+      var workspace = workspaces[workspaceIndex]
       if (!workspace || Number(workspace.id) <= 0) continue
-      var target = monitorNames[String(workspace.monitor || "")]
+      var monitorName = workspace.monitor ? String(workspace.monitor.name || "") : ""
+      var target = monitorNames[monitorName]
       if (target && assignments[target]) assignments[target].push(Number(workspace.id))
     }
 
@@ -175,9 +227,16 @@ Item {
     if (!root.configLoaded || !root.rulesLoaded) return
     if (root.renderedRules === root.lastWrittenRules) return
 
+    // Reload only when the module has something to say or has just stopped
+    // saying it. A first run with Apply off writes an inert stub, and
+    // reloading Hyprland for that would be a side effect of merely installing
+    // the plugin.
+    var claimedBefore = root.lastWrittenRules.indexOf("hl.workspace_rule") !== -1
+    var needsReload = root.applyEnabled || claimedBefore
+
     rulesFile.setText(root.renderedRules)
     root.lastWrittenRules = root.renderedRules
-    reloadHyprland()
+    if (needsReload) reloadHyprland()
   }
 
   // `config-only` keeps Hyprland from re-applying monitor configuration, which
@@ -192,44 +251,38 @@ Item {
     reloadProcess.running = true
   }
 
+  // Line by line, skipping Lua comments: a commented-out hook is exactly the
+  // state the panel most needs to report, and a whole-file substring search
+  // would read it as installed and hide the very line that is missing.
   function parseHyprlandConfig(text) {
-    root.hookInstalled = String(text || "").indexOf("dynamic-workspaces/rules.lua") !== -1
-  }
+    var lines = String(text || "").split("\n")
 
-  function parseMonitorData(raw) {
-    try {
-      var parsed = JSON.parse(String(raw || "[]"))
-      root.activeMonitors = Array.isArray(parsed) ? parsed : []
-    } catch (error) {
-      console.warn("dynamic-workspaces: monitor query failed:", String(error))
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i].replace(/^\s+/, "")
+      if (line.indexOf("--") === 0) continue
+      if (line.indexOf("dynamic-workspaces/rules.lua") !== -1) {
+        root.hookInstalled = true
+        return
+      }
     }
+
+    root.hookInstalled = false
   }
 
-  function parseWorkspaceData(raw) {
-    try {
-      var parsed = JSON.parse(String(raw || "[]"))
-      root.activeWorkspaces = Array.isArray(parsed) ? parsed : []
-    } catch (error) {
-      console.warn("dynamic-workspaces: workspace query failed:", String(error))
-    }
+  // Monitor descriptions in the order the groups are laid out, which is what
+  // the fallback allocation is computed against.
+  function orderedDescriptions() {
+    var groups = root.groups
+    var result = []
+    for (var i = 0; i < groups.length; i++) result.push(groups[i].description)
+    return result
   }
 
-  function workspaceById(id) {
-    var values = root.activeWorkspaces
-    for (var i = 0; i < values.length; i++) {
-      if (values[i] && values[i].id === id) return values[i]
-    }
-    return null
-  }
-
-  function workspaceFocused(id) {
-    var monitors = root.activeMonitors
-    for (var i = 0; i < monitors.length; i++) {
-      if (monitors[i] && monitors[i].activeWorkspace && monitors[i].activeWorkspace.id === id) return true
-    }
-    return false
-  }
-
+  // Only what the profile decides: which workspaces belong to which monitor,
+  // and what they are called. Whether a workspace is occupied or focused is
+  // live compositor state, and the views read that straight from Hyprland —
+  // folding it in here would invalidate this whole model, and with it every
+  // delegate in the bar and the panel, on each focus change.
   function buildGroups() {
     var monitors = []
     var values = root.activeMonitors
@@ -268,12 +321,9 @@ Item {
 
       for (var workspaceIndex = 0; workspaceIndex < ids.length; workspaceIndex++) {
         var id = ids[workspaceIndex]
-        var workspace = root.workspaceById(id)
         workspaces.push({
           id: id,
-          label: ProfileLogic.workspaceLabel(root.activeProfile, id),
-          occupied: workspace !== null && Number(workspace.windows || 0) > 0,
-          focused: root.workspaceFocused(id)
+          label: ProfileLogic.workspaceLabel(root.activeProfile, id)
         })
       }
 
@@ -295,37 +345,6 @@ Item {
   }
 
   Process {
-    id: monitorQuery
-    command: ["hyprctl", "-j", "monitors"]
-    running: false
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.parseMonitorData(text)
-    }
-  }
-
-  Process {
-    id: workspaceQuery
-    command: ["hyprctl", "-j", "workspaces"]
-    running: false
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.parseWorkspaceData(text)
-    }
-  }
-
-  Timer {
-    interval: 1500
-    repeat: true
-    running: true
-    triggeredOnStart: true
-    onTriggered: {
-      if (!monitorQuery.running) monitorQuery.running = true
-      if (!workspaceQuery.running) workspaceQuery.running = true
-    }
-  }
-
-  Process {
     id: reloadProcess
     command: ["hyprctl", "reload", "config-only"]
     running: false
@@ -338,14 +357,20 @@ Item {
       }
     }
 
+    // Deferred: stderr is collected on its own signal, and its ordering
+    // against onExited is not guaranteed, so deciding success here would
+    // sometimes stamp a time onto a run that turns out to have failed.
     onExited: function(exitCode) {
       if (exitCode !== 0 && root.applyError === "")
         root.applyError = "hyprctl reload failed with exit code " + exitCode
-      if (exitCode === 0 && root.applyError === "") root.appliedAt = Date.now()
-      if (root.reloadPending) {
-        root.reloadPending = false
-        root.reloadHyprland()
-      }
+
+      Qt.callLater(function() {
+        if (root.applyError === "") root.appliedAt = Date.now()
+        if (root.reloadPending) {
+          root.reloadPending = false
+          root.reloadHyprland()
+        }
+      })
     }
   }
 
@@ -417,6 +442,7 @@ Item {
         apply: root.applySettings,
         hookInstalled: root.hookInstalled,
         rulesPath: root.rulesPath,
+        appliedAt: root.appliedAt,
         applyError: root.applyError,
         groups: root.groups
       })
@@ -426,6 +452,21 @@ Item {
     // do can be read before anything is applied.
     function preview(): string {
       return root.renderedRules
+    }
+
+    function open(): string {
+      root.panelRequested("open")
+      return "ok"
+    }
+
+    function close(): string {
+      root.panelRequested("close")
+      return "ok"
+    }
+
+    function toggle(): string {
+      root.panelRequested("toggle")
+      return "ok"
     }
 
     function setApply(enabled: string): string {

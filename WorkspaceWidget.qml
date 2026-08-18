@@ -45,13 +45,10 @@ BarWidget {
 
       for (var workspaceIndex = 0; workspaceIndex < group.workspaces.length; workspaceIndex++) {
         var workspace = group.workspaces[workspaceIndex]
-        var liveWorkspace = root.liveWorkspaceById(workspace.id)
         result.push({
           type: "workspace",
           id: workspace.id,
           label: workspace.label,
-          occupied: liveWorkspace !== null && liveWorkspace.toplevels.values.length > 0,
-          focused: Hyprland.focusedWorkspace !== null && Hyprland.focusedWorkspace.id === workspace.id,
           monitor: group.name
         })
       }
@@ -84,6 +81,17 @@ BarWidget {
         required property var modelData
 
         readonly property bool isDivider: chip.modelData.type === "divider"
+        // Live state stays out of the service's model so that focusing a
+        // workspace does not rebuild every chip on the bar. Each chip watches
+        // Hyprland for itself instead.
+        readonly property bool chipFocused: !chip.isDivider
+          && Hyprland.focusedWorkspace !== null
+          && Hyprland.focusedWorkspace.id === chip.modelData.id
+        readonly property bool chipOccupied: {
+          if (chip.isDivider) return false
+          var live = root.liveWorkspaceById(chip.modelData.id)
+          return live !== null && live.toplevels ? live.toplevels.values.length > 0 : false
+        }
 
         bar: root.bar
         text: chip.modelData.label
@@ -91,10 +99,10 @@ BarWidget {
         tooltipText: chip.isDivider
           ? ""
           : "Workspace " + chip.modelData.id + " · " + chip.modelData.monitor
-        active: !chip.isDivider && chip.modelData.focused
+        active: chip.chipFocused
         // The divider is chrome, so it sits at the same weight as an idle
         // workspace rather than competing with the live ones.
-        opacity: chip.isDivider ? 0.5 : (chip.modelData.occupied || chip.modelData.focused ? 1.0 : 0.5)
+        opacity: chip.isDivider ? 0.5 : (chip.chipOccupied || chip.chipFocused ? 1.0 : 0.5)
         verticalPadding: 6
         // Intrinsic width with a floor rather than a hard fixed width: plain
         // numbers keep the uniform slot they had, while a longer label —

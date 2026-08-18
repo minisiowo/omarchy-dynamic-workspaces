@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Quickshell
+import Quickshell.Hyprland
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
@@ -28,6 +29,18 @@ BarWidget {
   readonly property color panelForeground: bar ? bar.foreground : Color.foreground
   readonly property color panelDim: Qt.darker(panelForeground, 1.55)
   readonly property string panelFont: bar ? bar.fontFamily : Style.font.family
+
+  // Which screen this instance's bar is on, resolved the way the shell's own
+  // popup kit does it. When it cannot be determined — or nothing is focused —
+  // the instance assumes it is the right one, so a single-monitor setup always
+  // responds.
+  readonly property string screenName: {
+    var window = button.QsWindow.window
+    return window && window.screen ? String(window.screen.name) : ""
+  }
+  readonly property bool onFocusedMonitor: Hyprland.focusedMonitor === null
+    || root.screenName === ""
+    || root.screenName === String(Hyprland.focusedMonitor.name)
 
   readonly property bool applyNeedsHook: root.service
     && root.service.applyEnabled === true
@@ -59,6 +72,15 @@ BarWidget {
   function closeForPopoutSwitch() { close() }
   function togglePanel() { popupOpen = !popupOpen }
 
+  function workspaceOccupied(id) {
+    var values = Hyprland.workspaces.values
+    for (var i = 0; i < values.length; i++) {
+      if (values[i] && values[i].id === id)
+        return values[i].toplevels ? values[i].toplevels.values.length > 0 : false
+    }
+    return false
+  }
+
   function selectWorkspace(workspace) {
     selectedWorkspaceId = Number(workspace.id)
     labelEditor.text = String(workspace.label || workspace.id)
@@ -88,14 +110,18 @@ BarWidget {
 
   onPopupOpenChanged: if (!popupOpen) clearDropTarget()
 
-  IpcHandler {
-    target: root.moduleName
+  // The panel's IPC lives on the service, which is a single object per shell.
+  // A bar widget exists per monitor, so each one only acts when it is the one
+  // the user is looking at.
+  Connections {
+    target: root.service
 
-    function open(): void { root.open() }
-    function close(): void { root.close() }
-    function show(): void { root.open() }
-    function hide(): void { root.close() }
-    function toggle(): void { root.togglePanel() }
+    function onPanelRequested(action) {
+      if (!root.onFocusedMonitor) return
+      if (action === "open") root.open()
+      else if (action === "close") root.close()
+      else root.togglePanel()
+    }
   }
 
   // BarIconButton rather than a plain WidgetButton: it gives the icon the same
@@ -578,6 +604,12 @@ BarWidget {
 
             readonly property int workspaceId: Number(chipCell.modelData.id)
             readonly property bool selected: root.selectedWorkspaceId === chipCell.workspaceId
+            // Live compositor state, read here rather than carried in the
+            // service's model: folding it into the model would rebuild every
+            // chip in the panel on each focus change, mid-drag included.
+            readonly property bool focused: Hyprland.focusedWorkspace !== null
+              && Hyprland.focusedWorkspace.id === chipCell.workspaceId
+            readonly property bool occupied: root.workspaceOccupied(chipCell.workspaceId)
             readonly property bool markBefore: card.dropActive && root.dropIndex === chipCell.index
             readonly property bool markAfter: card.dropActive
               && root.dropIndex === card.workspaceCount
@@ -629,12 +661,12 @@ BarWidget {
               width: chipCell.width
               height: chipCell.height
               radius: Style.cornerRadius
-              color: chipCell.modelData.focused
+              color: chipCell.focused
                 ? Style.selectedFillFor(root.panelForeground, Color.accent)
                 : Style.normalFillFor(root.panelForeground, Color.accent)
               border.width: chipCell.selected ? Math.max(1, Style.normalBorderWidth) : 0
               border.color: Color.accent
-              opacity: chipCell.modelData.occupied || chipCell.modelData.focused ? 1.0 : 0.55
+              opacity: chipCell.occupied || chipCell.focused ? 1.0 : 0.55
 
               Drag.active: chipDrag.drag.active
               Drag.source: chip
@@ -648,7 +680,7 @@ BarWidget {
                 anchors.centerIn: parent
                 text: String(chipCell.modelData.label)
                 color: root.panelForeground
-                font.bold: chipCell.modelData.focused
+                font.bold: chipCell.focused
                 font.family: root.panelFont
                 font.pixelSize: Style.font.body
               }
