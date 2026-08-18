@@ -2,7 +2,7 @@
 
 A profile-aware workspace manager for monitor setups that change throughout the day.
 
-> **Status:** `0.3.0`. Profiles are editable, persisted, and — once the switch in the panel is on and the one-line hook is in place — applied to Hyprland.
+> **Status:** `0.4.0`. Profiles are editable, persisted, and — once the switch in the panel is on and the one-line hook is in place — applied to Hyprland.
 
 ## Current behavior
 
@@ -11,7 +11,7 @@ A profile-aware workspace manager for monitor setups that change throughout the 
 - opens a native Omarchy popup panel built from the shell's own panel kit (hero header, section headers, separators, scrollable content);
 - observes active Hyprland monitors and workspaces;
 - matches profiles by the exact set of active monitor descriptions;
-- falls back to an editable default profile;
+- falls back to an editable default profile that gives every unrecognised monitor its own block of workspaces;
 - displays only workspace ids configured in the selected profile;
 - adds and removes configured workspace ids;
 - moves workspace definitions between monitor groups with drag-and-drop;
@@ -102,6 +102,31 @@ Copy `config.example.json` as a starting point. Exact profiles have this shape:
 
 Monitor matching uses EDID descriptions rather than connector names such as `DP-7`.
 
+### The default profile
+
+Exactly one profile may use `"mode": "default"`. It is selected whenever no exact profile matches the connected monitors, and it is the reason plugging in an unfamiliar screen never leaves you looking at an empty bar.
+
+Unlike an exact profile, it does not have to name the monitors it applies to. Every connected monitor it does not assign by hand gets its own block of consecutive workspaces, laid out left to right:
+
+```json
+{
+  "id": "default",
+  "match": { "mode": "default" },
+  "assignments": {},
+  "fallback": { "perMonitor": 3 }
+}
+```
+
+One unknown monitor gets `1 2 3`; two get `1 2 3` and `4 5 6`; three get a third block of `7 8 9`. `perMonitor` is clamped to 1–10, so the ids stay within reach of the number-key bindings.
+
+Assignments you write by hand still win, and their ids are reserved — the automatic blocks route around them rather than colliding. With `"Home Screen": [1, 5]` pinned and two unknown monitors either side of it, the result is `2 3 4`, then `1 5`, then `6 7 8`.
+
+The panel marks an automatically assigned monitor with an **AUTO** badge. Editing that monitor's workspaces pins it: the assignment is written to the profile and stops being automatic.
+
+Because the monitors are unknown until Hyprland reports them — and a workspace rule's monitor cannot be changed once the rule exists — the generated module carries the allocation rule itself and builds the rules when the monitors appear, rather than shipping pre-computed groups.
+
+Two identical monitors report the same EDID description, so Hyprland's `desc:` selector cannot tell them apart. Give such a setup an exact profile rather than relying on the default one.
+
 The bar icon can be changed to any text, emoji, or Nerd Font glyph:
 
 ```bash
@@ -137,6 +162,7 @@ rm ~/.config/omarchy/plugins/minisiowo.dynamic-workspaces
 - `0.1`: safe profile detection and read-only preview;
 - `0.2`: profile editor and drag-and-drop workspace assignment;
 - `0.3`: opt-in Hyprland rule generation with clamshell debounce;
+- `0.4`: a default profile that assigns unrecognised monitors on its own;
 - `1.0`: documentation, screenshots, release and listing on omarchyplugins.com.
 
 ## License

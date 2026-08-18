@@ -237,18 +237,33 @@ Item {
       if (values[i]) monitors.push(values[i])
     }
 
+    // Same order the generated module sorts by, so the ids the bar shows for an
+    // unrecognised monitor are the ids Hyprland assigns it.
     monitors.sort(function(left, right) {
       var leftX = Number(left.x || 0)
       var rightX = Number(right.x || 0)
       if (leftX !== rightX) return leftX - rightX
-      return Number(left.y || 0) - Number(right.y || 0)
+
+      var leftY = Number(left.y || 0)
+      var rightY = Number(right.y || 0)
+      if (leftY !== rightY) return leftY - rightY
+
+      return String(left.name || "").localeCompare(String(right.name || ""))
     })
 
+    var descriptions = []
+    for (var descriptionIndex = 0; descriptionIndex < monitors.length; descriptionIndex++) {
+      var current = monitors[descriptionIndex]
+      descriptions.push(String(current.description || current.name || ""))
+    }
+
+    var groups = ProfileLogic.resolveGroups(root.activeProfile, descriptions)
     var result = []
+
     for (var monitorIndex = 0; monitorIndex < monitors.length; monitorIndex++) {
       var monitor = monitors[monitorIndex]
-      var description = String(monitor.description || monitor.name || "")
-      var ids = ProfileLogic.workspaceIds(root.activeProfile, description)
+      var group = groups[monitorIndex]
+      var ids = group ? group.workspaces : []
       var workspaces = []
 
       for (var workspaceIndex = 0; workspaceIndex < ids.length; workspaceIndex++) {
@@ -264,7 +279,8 @@ Item {
 
       result.push({
         name: String(monitor.name || "Unknown monitor"),
-        description: description,
+        description: descriptions[monitorIndex],
+        automatic: group ? group.automatic === true : false,
         workspaces: workspaces
       })
     }

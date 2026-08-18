@@ -471,6 +471,9 @@ BarWidget {
     readonly property string description: String(card.group.description)
     readonly property int workspaceCount: card.group.workspaces.length
     readonly property bool dropActive: root.dropMonitor === card.description
+    // Nothing in the config assigns this monitor: the default profile handed it
+    // a block of workspaces so the bar is never empty on an unfamiliar screen.
+    readonly property bool automatic: card.group.automatic === true
 
     implicitHeight: cardContent.implicitHeight + Style.space(12) * 2
     color: Qt.rgba(root.panelForeground.r, root.panelForeground.g, root.panelForeground.b, 0.05)
@@ -495,6 +498,33 @@ BarWidget {
           font.family: root.panelFont
           font.pixelSize: Style.font.bodySmall
           font.bold: true
+        }
+
+        Rectangle {
+          Layout.alignment: Qt.AlignVCenter
+          visible: card.automatic
+          implicitWidth: automaticLabel.implicitWidth + Style.space(10)
+          implicitHeight: automaticLabel.implicitHeight + Style.space(4)
+          radius: height / 2
+          color: Qt.rgba(root.panelForeground.r, root.panelForeground.g, root.panelForeground.b, 0.10)
+
+          Text {
+            id: automaticLabel
+            anchors.centerIn: parent
+            text: "AUTO"
+            color: root.panelDim
+            font.family: root.panelFont
+            font.pixelSize: Style.font.caption
+            font.bold: true
+          }
+
+          HoverHandler { id: automaticHover }
+
+          PanelToolTip {
+            visible: automaticHover.hovered
+            text: "Assigned automatically because no profile names this monitor. Editing it here pins it."
+            fontFamily: root.panelFont
+          }
         }
 
         Text {

@@ -103,7 +103,6 @@ function workspaceIds(profile, monitorDescription) {
 
   var assignments = asObject(profile.assignments)
   var configured = assignments[monitorDescription]
-  if (!Array.isArray(configured)) configured = assignments["*"]
 
   var ids = []
   var seen = {}
@@ -117,6 +116,70 @@ function workspaceIds(profile, monitorDescription) {
   }
 
   return ids
+}
+
+// How many workspaces an unrecognised monitor gets from the default profile.
+// Three is the block size most people end up with by hand, and it is small
+// enough that even four unknown screens stay inside the single-digit ids that
+// the number-key bindings reach.
+function fallbackPerMonitor(profile) {
+  var settings = asObject(profile ? profile.fallback : null)
+  var count = Number(settings.perMonitor)
+
+  return Number.isFinite(count) ? Math.max(1, Math.min(10, Math.round(count))) : 3
+}
+
+function isFallbackProfile(profile) {
+  return String(asObject(profile ? profile.match : null).mode || "") === "default"
+}
+
+// Turns a profile plus the monitors actually connected — in left-to-right
+// order — into the workspace groups both the bar and the generated Lua module
+// work from. Exact profiles answer purely from their own assignments; the
+// default profile hands every monitor it does not name a block of consecutive
+// workspaces, taking the lowest ids its explicit assignments leave free.
+//
+// This is the one place the allocation is decided. `rulesRuntime()` mirrors it
+// in Lua, because rules for monitors nobody has described yet cannot exist
+// until those monitors do.
+function resolveGroups(profile, orderedDescriptions) {
+  var descriptions = []
+  var values = asArray(orderedDescriptions)
+  for (var i = 0; i < values.length; i++) descriptions.push(String(values[i] || ""))
+
+  var groups = []
+  var fallback = isFallbackProfile(profile)
+  var reserved = {}
+  var pending = []
+
+  for (var index = 0; index < descriptions.length; index++) {
+    var ids = workspaceIds(profile, descriptions[index])
+    var automatic = fallback && ids.length === 0
+
+    groups.push({ description: descriptions[index], workspaces: ids, automatic: automatic })
+
+    if (automatic) pending.push(index)
+    else for (var reserve = 0; reserve < ids.length; reserve++) reserved[ids[reserve]] = true
+  }
+
+  var perMonitor = fallbackPerMonitor(profile)
+  var nextId = 1
+
+  for (var slot = 0; slot < pending.length; slot++) {
+    var allocated = []
+
+    while (allocated.length < perMonitor) {
+      if (!reserved[nextId]) {
+        reserved[nextId] = true
+        allocated.push(nextId)
+      }
+      nextId += 1
+    }
+
+    groups[pending[slot]].workspaces = allocated
+  }
+
+  return groups
 }
 
 function workspaceLabel(profile, workspaceId) {
@@ -303,14 +366,15 @@ function rulesProfile(profile) {
 
   for (var monitorDescription in assignments) {
     var description = String(monitorDescription || "")
-    // "*" is a display-time wildcard in the panel; it names no monitor, so it
-    // cannot become a rule.
+    // "*" used to be a display-time wildcard; the default profile's own
+    // allocation replaced it. Configs written before that may still carry the
+    // key, and it names no monitor, so it can never become a rule.
     if (description === "" || description === "*") continue
 
     var ids = workspaceIds(profile, description)
     if (ids.length === 0) continue
 
-    groups.push({ selector: monitorSelector(description), workspaces: ids })
+    groups.push({ description: description, selector: monitorSelector(description), workspaces: ids })
   }
 
   return {
@@ -349,6 +413,33 @@ function luaProfileEntry(profile, indent) {
   return lines.join("\n")
 }
 
+// The default profile is emitted differently from an exact one: it names no
+// monitor set, so all the generated file can carry is the assignments the user
+// pinned by hand plus the block size to hand out for everything else.
+function luaFallbackEntry(profile, perMonitor) {
+  var lines = []
+
+  lines.push("{")
+  lines.push("  id = " + luaString(profile.id) + ",")
+  lines.push("  per_monitor = " + perMonitor + ",")
+
+  if (profile.groups.length === 0) {
+    lines.push("  explicit = {},")
+  } else {
+    lines.push("  explicit = {")
+    for (var index = 0; index < profile.groups.length; index++) {
+      var group = profile.groups[index]
+      lines.push("    { description = " + luaString(group.description)
+        + ", workspaces = { " + group.workspaces.join(", ") + " } },")
+    }
+    lines.push("  },")
+  }
+
+  lines.push("}")
+
+  return lines.join("\n")
+}
+
 // The half of the module that never changes: profile resolution, the debounced
 // reaction to monitor events, and enabling exactly one profile's rules at a
 // time. Kept verbatim so a diff of the generated file only ever shows data.
@@ -361,11 +452,9 @@ function rulesRuntime() {
     "  return table.concat(sorted, \"\\31\")",
     "end",
     "",
-    "-- Every rule of every profile is created up front and left disabled, so",
-    "-- switching profiles is only ever a pair of set_enabled calls.",
-    "local function build(profile)",
+    "local function build(groups)",
     "  local rules = {}",
-    "  for _, group in ipairs(profile.groups) do",
+    "  for _, group in ipairs(groups) do",
     "    for _, workspace in ipairs(group.workspaces) do",
     "      table.insert(rules, hl.workspace_rule({",
     "        workspace = tostring(workspace),",
@@ -378,33 +467,96 @@ function rulesRuntime() {
     "  return rules",
     "end",
     "",
-    "local rules_by_id = {}",
-    "for _, profile in ipairs(profiles) do rules_by_id[profile.id] = build(profile) end",
-    "if fallback ~= nil then rules_by_id[fallback.id] = build(fallback) end",
+    "-- Left to right, so the block a screen gets follows where it physically is",
+    "-- rather than the order Hyprland happened to discover it in.",
+    "local function ordered_monitors()",
+    "  local monitors = {}",
+    "  for _, monitor in ipairs(hl.get_monitors()) do table.insert(monitors, monitor) end",
+    "  table.sort(monitors, function(left, right)",
+    "    if left.x ~= right.x then return left.x < right.x end",
+    "    if left.y ~= right.y then return left.y < right.y end",
+    "    return left.name < right.name",
+    "  end)",
+    "  return monitors",
+    "end",
     "",
-    "local active_id = nil",
+    "-- The default profile names no monitors, so its rules cannot be built until",
+    "-- the monitors exist. Every screen it does not assign by hand gets its own",
+    "-- block of per_monitor workspaces, taking the lowest ids the explicit",
+    "-- assignments leave free. Mirrors resolveGroups() in ProfileLogic.js.",
+    "local function fallback_groups(monitors)",
+    "  local explicit = {}",
+    "  for _, entry in ipairs(fallback.explicit) do",
+    "    explicit[entry.description] = entry.workspaces",
+    "  end",
+    "",
+    "  local groups = {}",
+    "  local reserved = {}",
+    "  local pending = {}",
+    "",
+    "  for index, monitor in ipairs(monitors) do",
+    "    local ids = explicit[monitor.description]",
+    "    groups[index] = { monitor = \"desc:\" .. monitor.description, workspaces = ids or {} }",
+    "",
+    "    if ids == nil then",
+    "      table.insert(pending, index)",
+    "    else",
+    "      for _, id in ipairs(ids) do reserved[id] = true end",
+    "    end",
+    "  end",
+    "",
+    "  local next_id = 1",
+    "  for _, index in ipairs(pending) do",
+    "    local ids = {}",
+    "    while #ids < fallback.per_monitor do",
+    "      if not reserved[next_id] then",
+    "        reserved[next_id] = true",
+    "        table.insert(ids, next_id)",
+    "      end",
+    "      next_id = next_id + 1",
+    "    end",
+    "    groups[index].workspaces = ids",
+    "  end",
+    "",
+    "  return groups",
+    "end",
+    "",
+    "-- Rules are built once per distinct outcome and kept disabled in between,",
+    "-- so a profile that has been seen before switches on set_enabled alone.",
+    "local rules_by_key = {}",
+    "local active_key = nil",
     "",
     "local function resolve()",
+    "  local monitors = ordered_monitors()",
     "  local descriptions = {}",
-    "  for _, monitor in ipairs(hl.get_monitors()) do",
+    "  for _, monitor in ipairs(monitors) do",
     "    table.insert(descriptions, monitor.description)",
     "  end",
     "",
     "  local current = signature(descriptions)",
     "  for _, profile in ipairs(profiles) do",
-    "    if signature(profile.monitors) == current then return profile.id end",
+    "    if signature(profile.monitors) == current then return profile.id, profile.groups end",
     "  end",
     "",
-    "  return fallback ~= nil and fallback.id or nil",
+    "  if fallback == nil then return nil, {} end",
+    "",
+    "  -- The monitor set is part of the key: falling back twice onto different",
+    "  -- unknown screens has to rebuild, not reuse.",
+    "  return fallback.id .. \"\\31\" .. current, fallback_groups(monitors)",
     "end",
     "",
     "local function sync()",
-    "  local id = resolve()",
-    "  if id == active_id then return end",
+    "  local key, groups = resolve()",
+    "  if key == active_key then return end",
     "",
-    "  for _, rule in ipairs(rules_by_id[active_id] or {}) do rule:set_enabled(false) end",
-    "  for _, rule in ipairs(rules_by_id[id] or {}) do rule:set_enabled(true) end",
-    "  active_id = id",
+    "  for _, rule in ipairs(rules_by_key[active_key] or {}) do rule:set_enabled(false) end",
+    "",
+    "  if key ~= nil then",
+    "    if rules_by_key[key] == nil then rules_by_key[key] = build(groups) end",
+    "    for _, rule in ipairs(rules_by_key[key]) do rule:set_enabled(true) end",
+    "  end",
+    "",
+    "  active_key = key",
     "end",
     "",
     "-- Opening a lid, waking, or docking produces a burst of monitor events and",
@@ -437,12 +589,17 @@ function renderRules(config, options) {
   var configPath = String(meta.configPath || "~/.config/omarchy/dynamic-workspaces/config.json")
   var exact = []
   var fallback = null
+  var fallbackPer = 3
 
   for (var i = 0; i < normalized.profiles.length; i++) {
     var profile = normalized.profiles[i]
     var mode = String(asObject(profile.match).mode || "")
-    if (mode === "exact") exact.push(rulesProfile(profile))
-    else if (mode === "default" && fallback === null) fallback = rulesProfile(profile)
+    if (mode === "exact") {
+      exact.push(rulesProfile(profile))
+    } else if (mode === "default" && fallback === null) {
+      fallback = rulesProfile(profile)
+      fallbackPer = fallbackPerMonitor(profile)
+    }
   }
 
   var lines = []
@@ -475,7 +632,7 @@ function renderRules(config, options) {
   if (fallback === null) {
     lines.push("local fallback = nil")
   } else {
-    lines.push("local fallback = " + luaProfileEntry(fallback, "").replace(/,$/, ""))
+    lines.push("local fallback = " + luaFallbackEntry(fallback, fallbackPer))
   }
 
   lines.push("")

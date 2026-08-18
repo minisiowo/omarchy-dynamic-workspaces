@@ -143,10 +143,15 @@ const sparse = context.withApplySettings({
     assignments: { "Monitor A": [1], "*": [2], "": [3], "Monitor B": [] }
   }]
 }, { enabled: true })
+// Asserted on the group data rather than the rendered text: the runtime half
+// of the module legitimately contains both `"desc:"` and `desc:*`-shaped
+// fragments, so substring checks over the whole file would match itself.
+assert.deepEqual(
+  Array.from(context.rulesProfile(sparse.profiles[0]).groups).map(group => group.selector),
+  ["desc:Monitor A"]
+)
 const sparseRules = context.renderRules(sparse, {})
 assert.match(sparseRules, /monitor = "desc:Monitor A", workspaces = \{ 1 \}/)
-assert.equal(sparseRules.includes('desc:*'), false)
-assert.equal(sparseRules.includes('"desc:"'), false)
 assert.equal(sparseRules.includes("Monitor B"), false)
 
 assert.equal(
@@ -155,3 +160,90 @@ assert.equal(
 )
 
 console.log("profile logic: ok")
+
+// ------------------------------------------------ default profile allocation
+//
+// This allocation is implemented twice: here in JS, which is what the bar
+// draws, and in Lua inside the generated module, which is what Hyprland acts
+// on. They have to agree exactly, so these assertions pin the ids themselves
+// rather than the shape of the result.
+//
+// Values cross the vm realm boundary, so their arrays fail a strict deepEqual
+// on prototype identity alone. Round-tripping through JSON compares them by
+// value, the way these assertions mean to.
+const plain = value => JSON.parse(JSON.stringify(value))
+const allocation = (profile, descriptions) =>
+  plain(context.resolveGroups(profile, descriptions)).map(group => group.workspaces)
+
+const fallbackProfile = { id: "default", match: { mode: "default" }, assignments: {} }
+
+// A single unknown monitor is the case that used to leave the bar empty: the
+// default profile was selected, but it named no monitor, so it produced nothing.
+assert.deepEqual(allocation(fallbackProfile, ["Laptop"]), [[1, 2, 3]])
+
+// Every further unrecognised monitor gets its own block, left to right.
+assert.deepEqual(allocation(fallbackProfile, ["Screen A", "Screen B"]), [[1, 2, 3], [4, 5, 6]])
+assert.deepEqual(allocation(fallbackProfile, ["A", "B", "C"]), [[1, 2, 3], [4, 5, 6], [7, 8, 9]])
+assert.deepEqual(allocation(fallbackProfile, []), [])
+assert.deepEqual(
+  plain(context.resolveGroups(fallbackProfile, ["A", "B"])).map(group => group.automatic),
+  [true, true]
+)
+
+// The block size is configurable, and clamped to a range the number-key
+// bindings can actually reach.
+assert.equal(context.fallbackPerMonitor({}), 3)
+assert.equal(context.fallbackPerMonitor({ fallback: { perMonitor: 2 } }), 2)
+assert.equal(context.fallbackPerMonitor({ fallback: { perMonitor: 0 } }), 1)
+assert.equal(context.fallbackPerMonitor({ fallback: { perMonitor: 99 } }), 10)
+assert.deepEqual(
+  allocation({ id: "d", match: { mode: "default" }, fallback: { perMonitor: 2 } }, ["A", "B"]),
+  [[1, 2], [3, 4]]
+)
+
+// A monitor the default profile pins by hand keeps its ids, and those ids are
+// reserved — the automatic blocks route around them instead of colliding.
+const pinned = { id: "default", match: { mode: "default" }, assignments: { "Pinned": [1, 5] } }
+assert.deepEqual(
+  allocation(pinned, ["Unknown A", "Pinned", "Unknown B"]),
+  [[2, 3, 4], [1, 5], [6, 7, 8]]
+)
+assert.deepEqual(
+  plain(context.resolveGroups(pinned, ["Unknown A", "Pinned", "Unknown B"])).map(group => group.automatic),
+  [true, false, true]
+)
+
+// An exact profile never allocates. Its assignments are the user's explicit
+// statement of intent, so a monitor it does not name stays empty.
+const exactProfile = {
+  id: "exact",
+  match: { mode: "exact", monitors: ["Known"] },
+  assignments: { "Known": [1, 2] }
+}
+assert.deepEqual(allocation(exactProfile, ["Known", "Stranger"]), [[1, 2], []])
+assert.deepEqual(
+  plain(context.resolveGroups(exactProfile, ["Known", "Stranger"])).map(group => group.automatic),
+  [false, false]
+)
+
+// The generated module carries the allocation rule rather than pre-computed
+// groups, because the monitors it applies to are unknown until Hyprland
+// reports them and a rule's monitor cannot be changed after it is created.
+const fallbackConfig = context.withApplySettings({
+  version: 1,
+  profiles: [{
+    id: "default",
+    match: { mode: "default" },
+    fallback: { perMonitor: 2 },
+    assignments: { "Pinned Screen": [7] }
+  }]
+}, { enabled: true })
+const fallbackRules = context.renderRules(fallbackConfig, {})
+assert.match(fallbackRules, /per_monitor = 2,/)
+assert.match(fallbackRules, /\{ description = "Pinned Screen", workspaces = \{ 7 \} \},/)
+assert.match(fallbackRules, /local function fallback_groups\(monitors\)/)
+assert.match(fallbackRules, /local function ordered_monitors\(\)/)
+// Falling back twice onto different unknown screens has to rebuild, not reuse.
+assert.match(fallbackRules, /fallback\.id \.\. "\\31" \.\. current/)
+
+console.log("fallback allocation: ok")
