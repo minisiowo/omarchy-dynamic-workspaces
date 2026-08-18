@@ -344,3 +344,51 @@ const orderTwo = context.withApplySettings({
 assert.equal(context.renderRules(orderOne, {}), context.renderRules(orderTwo, {}))
 
 console.log("fallback materialization: ok")
+
+// ------------------------------------------------- screens sharing a description
+//
+// Two screens of the same model report the same EDID description, and both the
+// assignments and the generated rules are keyed by it. Hyprland's `desc:`
+// selector cannot address one of them either, so they resolve as one logical
+// monitor rather than two — otherwise one would get a block no rule could
+// reach, and materializing would overwrite the other's.
+
+const twins = ["Same Model", "Same Model"]
+const twinGroups = plain(context.resolveGroups(fallbackProfile, twins))
+
+assert.deepEqual(twinGroups.map(group => group.workspaces), [[1, 2, 3], [1, 2, 3]])
+assert.deepEqual(twinGroups.map(group => group.shared), [true, true])
+assert.deepEqual(twinGroups.map(group => group.automatic), [true, true])
+
+// A third, distinct screen still gets the next free block — the shared pair
+// consumes one block between them, not two.
+assert.deepEqual(
+  allocation(fallbackProfile, ["Same Model", "Same Model", "Other"]),
+  [[1, 2, 3], [1, 2, 3], [4, 5, 6]]
+)
+
+// Materializing writes one key and loses nothing.
+const twinsMaterialized = context.materializeFallback(autoProfile, "default", twins)
+assert.deepEqual(plain(twinsMaterialized.profiles[0].assignments), { "Same Model": [1, 2, 3] })
+assert.deepEqual(
+  allocation(twinsMaterialized.profiles[0], twins),
+  allocation(autoProfile.profiles[0], twins)
+)
+
+// Distinct descriptions are untouched by any of this.
+assert.deepEqual(allocation(fallbackProfile, ["A", "B"]), [[1, 2, 3], [4, 5, 6]])
+assert.deepEqual(
+  plain(context.resolveGroups(fallbackProfile, ["A", "B"])).map(group => group.shared),
+  [false, false]
+)
+
+// An exact profile that names the shared description gives both screens the
+// same ids, which is exactly what its single rule will do.
+const twinExact = {
+  id: "twin",
+  match: { mode: "exact", monitors: ["Same Model"] },
+  assignments: { "Same Model": [1, 2] }
+}
+assert.deepEqual(allocation(twinExact, twins), [[1, 2], [1, 2]])
+
+console.log("shared descriptions: ok")

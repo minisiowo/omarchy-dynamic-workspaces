@@ -142,6 +142,14 @@ function isFallbackProfile(profile) {
 // This is the one place the allocation is decided. `rulesRuntime()` mirrors it
 // in Lua, because rules for monitors nobody has described yet cannot exist
 // until those monitors do.
+//
+// Two screens of the same model report the same EDID description, and every
+// assignment here — and every rule in the generated module — is keyed by that
+// description. Hyprland's `desc:` selector cannot tell them apart either, so
+// they are resolved as one logical monitor sharing a single group. Treating
+// them as two would allocate a block that no rule could ever address, and
+// writing both down would have the second silently overwrite the first.
+// Profile matching already reads them this way, through `uniqueStrings()`.
 function resolveGroups(profile, orderedDescriptions) {
   var descriptions = []
   var values = asArray(orderedDescriptions)
@@ -151,12 +159,31 @@ function resolveGroups(profile, orderedDescriptions) {
   var fallback = isFallbackProfile(profile)
   var reserved = {}
   var pending = []
+  var firstSeenAt = {}
 
   for (var index = 0; index < descriptions.length; index++) {
-    var ids = workspaceIds(profile, descriptions[index])
-    var automatic = fallback && ids.length === 0
+    var description = descriptions[index]
+    var shared = Object.prototype.hasOwnProperty.call(firstSeenAt, description)
+    var ids = workspaceIds(profile, description)
+    var automatic = fallback && !shared && ids.length === 0
 
-    groups.push({ description: descriptions[index], workspaces: ids, automatic: automatic })
+    groups.push({
+      description: description,
+      workspaces: ids,
+      automatic: automatic,
+      // True on every screen that shares its description with another, the
+      // first one included: none of them can be addressed on its own.
+      shared: false
+    })
+
+    if (shared) {
+      groups[index].automatic = groups[firstSeenAt[description]].automatic
+      groups[index].shared = true
+      groups[firstSeenAt[description]].shared = true
+      continue
+    }
+
+    firstSeenAt[description] = index
 
     if (automatic) pending.push(index)
     else for (var reserve = 0; reserve < ids.length; reserve++) reserved[ids[reserve]] = true
@@ -177,6 +204,13 @@ function resolveGroups(profile, orderedDescriptions) {
     }
 
     groups[pending[slot]].workspaces = allocated
+  }
+
+  // Screens sharing a description show the group their description resolved to.
+  for (var copyIndex = 0; copyIndex < groups.length; copyIndex++) {
+    if (!groups[copyIndex].shared) continue
+    var source = firstSeenAt[groups[copyIndex].description]
+    if (source !== copyIndex) groups[copyIndex].workspaces = groups[source].workspaces.slice()
   }
 
   return groups
