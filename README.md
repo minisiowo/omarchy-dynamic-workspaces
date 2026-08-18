@@ -1,31 +1,37 @@
 # Dynamic Workspaces for Omarchy
 
-A profile-aware workspace manager for monitor setups that change throughout the day.
+Your workspaces land on the right screen, whichever screens you happen to have plugged in.
 
-> **Status:** `0.4.3`. Profiles are editable, persisted, and — once the switch in the panel is on and the one-line hook is in place — applied to Hyprland.
+## The problem
 
-## Current behavior
+You work on a laptop. At your desk it drives two external monitors; on the train it is just the built-in display. Hyprland can pin workspace 4 to a particular monitor, but only if you write that down in advance, for one fixed arrangement. Unplug, and the workspaces that lived on the monitor you just removed pile onto whatever is left. Plug back in, and they do not go home by themselves.
 
-- adds one configurable control icon to the Omarchy bar;
-- renders configured workspace groups in a separate instance at the normal workspace position;
-- opens a native Omarchy popup panel built from the shell's own panel kit (hero header, section headers, separators, scrollable content);
-- observes active Hyprland monitors and workspaces;
-- matches profiles by the exact set of active monitor descriptions;
-- falls back to an editable default profile that gives every unrecognised monitor its own block of workspaces;
-- displays only workspace ids configured in the selected profile;
-- adds and removes configured workspace ids;
-- saves the monitor set on screen as a named profile;
-- moves workspace definitions between monitor groups with drag-and-drop;
-- edits arbitrary labels, emoji, Nerd Font glyphs, and the divider;
-- saves the profile atomically outside the plugin checkout;
-- generates a Hyprland Lua module that assigns workspaces to monitors and switches profiles on its own when the monitor set changes;
-- supports separate `Control` and `Workspaces` widget modes from the same marketplace plugin.
+This plugin remembers a layout for each set of screens you actually use, and switches between them on its own.
 
-This makes clamshell transitions predictable: closing or opening a laptop changes the active monitor set, which changes the selected profile. Omarchy remains solely responsible for enabling and disabling displays.
+```
+laptop on its own      1  2  3
+
+docked                 1  2  3  │  4  5  6
+                       built-in    external
+```
+
+Close the lid and the bar goes back to the first row. Open it and you get the second one. Nothing to press.
+
+## What you get
+
+An icon on the Omarchy bar opens a small panel showing every screen you have connected, with its workspaces as chips underneath. Drag a chip from one screen to another to decide where that workspace belongs. Give it a name, an emoji, or an icon if a number is not enough.
+
+Once a layout looks right, save it. From then on, whenever exactly those screens are connected, that layout comes back — when you dock, when you undock, when you wake the machine up.
+
+Plug in a screen the plugin has never seen and you do not get an empty bar: it hands each unfamiliar monitor its own block of workspaces so you can start working, and offers to save the arrangement as a new profile.
+
+The plugin can also draw the workspace indicators on the bar itself, grouped by monitor with a divider between screens, in place of Omarchy's built-in ones.
+
+Nothing reaches Hyprland until you switch it on — until then the panel is a preview you can play with freely.
 
 ## Requirements
 
-Omarchy with the Quickshell bar, and Hyprland configured in **Lua** (`~/.config/hypr/hyprland.lua`). Applying assignments depends on it: the plugin hands Hyprland a generated Lua module, and the one-line hook that loads it is Lua. On the legacy `hyprland.conf` parser the panel still previews profiles, but nothing can be applied.
+Omarchy with its Quickshell bar, and Hyprland configured in **Lua** (`~/.config/hypr/hyprland.lua`). Applying a layout depends on that: the plugin writes a small Lua file for Hyprland to read. On the older `hyprland.conf` setup the panel still works as a preview, but nothing can be applied.
 
 ## Install
 
@@ -33,84 +39,66 @@ Omarchy with the Quickshell bar, and Hyprland configured in **Lua** (`~/.config/
 omarchy plugin add https://github.com/minisiowo/omarchy-dynamic-workspaces --enable
 ```
 
-That puts the control icon on the bar, in `Control` mode.
+That puts the control icon on the bar.
 
-The plugin also has a `Workspaces` mode, which draws the configured groups where the workspace indicators normally sit. Both modes come from this one plugin, so using both means placing it on the bar twice — the manifest allows multiple instances — and setting the second instance's **Widget mode** to `Workspaces`. Do that from Omarchy's bar settings, or with `omarchy bar put` / `omarchy bar set`; run `omarchy bar --help` for the placement flags. If you use it, disable `omarchy.workspaces` so the two do not sit side by side.
+The grouped workspace indicators are a second mode of the same plugin, so using them means placing the plugin on the bar a second time and setting that instance's **Widget mode** to `Workspaces`. Do it from Omarchy's bar settings, or with `omarchy bar put` / `omarchy bar set` — run `omarchy bar --help` for the placement flags. If you use it, disable `omarchy.workspaces` so you do not end up with two sets of indicators.
 
-Nothing is applied to Hyprland until you turn on **Apply** in the panel and add the hook line — see [Applying assignments](#applying-assignments).
+## First run
 
-## Applying assignments
+1. **Click the icon** on the bar. The panel lists your connected screens.
+2. **Arrange the workspaces.** Drag chips between screens, click one to rename it, use `+` to add another.
+3. **Save the setup** when it looks right. It becomes a profile for exactly this set of screens.
+4. **Turn on Apply** in the panel. The panel will then show you one line to add to `~/.config/hypr/hyprland.lua`:
 
-Assignments reach Hyprland as a generated Lua module, not as runtime commands. Two things rule out the runtime route: `hyprctl keyword` is refused outright once Hyprland is configured in Lua (*"keyword can't work with non-legacy parsers"*), and rules created through `hyprctl eval` live only in memory, so any config reload — a theme change, an edit anywhere in the config — silently drops them. Rules that live in the config survive reloads, and Hyprland does the profile switching itself on its own monitor events.
+   ```lua
+   pcall(dofile, os.getenv("HOME") .. "/.config/omarchy/dynamic-workspaces/rules.lua")
+   ```
 
-Turn on **Apply** in the panel, then add one line to `~/.config/hypr/hyprland.lua`:
+   Add it, and the panel stops asking.
 
-```lua
-pcall(dofile, os.getenv("HOME") .. "/.config/omarchy/dynamic-workspaces/rules.lua")
-```
+That line is the only change to your Hyprland configuration, and you make it yourself. The plugin writes two files of its own — `rules.lua` and `config.json`, both under `~/.config/omarchy/dynamic-workspaces/` — and touches nothing else. It never edits `monitors.lua`, `hyprland.lua`, your clamshell settings, or any Omarchy file.
 
-The panel shows that line until it finds it. Everything else is automatic: editing a profile rewrites `rules.lua` and runs `hyprctl reload config-only`, and from then on the module reacts to `monitor.added`, `monitor.removed`, and `monitor.layout_changed` by itself. Monitor events are debounced inside the module (1.2 s by default), so opening a lid, waking, or docking picks a profile once, from the state that lasts, instead of chasing every intermediate monitor set.
+## Everyday use
 
-The plugin writes `rules.lua` and its own `config.json`, and nothing else. It never edits `monitors.lua`, `hyprland.lua`, the clamshell configuration, or any Omarchy file — the `dofile` line is yours to add and yours to remove.
+After the first run there is nothing to do. Dock, undock, close the lid, wake the machine — the set of connected screens changes, the matching profile is picked up, and the workspaces follow. It settles for a moment first, so a dock that comes up one monitor at a time results in one switch at the end rather than a scramble along the way.
 
-Assignment behavior settings live in `config.json`:
+**A screen you have not saved a profile for** still gets workspaces: each unknown monitor is handed its own block of three, left to right, and its card in the panel is marked **AUTO**. Edit any of them and the whole arrangement is written into the profile, the badges disappear, and it behaves like one you saved by hand.
 
-```json
-"apply": {
-  "enabled": false,
-  "persistent": true,
-  "debounceMs": 1200
-}
-```
+**Two identical monitors** report the same name to the system, and Hyprland cannot tell them apart, so they share one set of workspaces and their cards are marked **SHARED**.
 
-`enabled` is the panel switch. `persistent` keeps configured workspaces alive even when empty, which is what most static Hyprland workspace setups do. `debounceMs` is how long the monitor set has to stay unchanged before the profile switches.
-
-To see exactly what would be handed to Hyprland without applying anything:
+The panel also holds the **divider** shown between monitor groups on the bar. The bar icon itself is any text, emoji, or Nerd Font glyph you like:
 
 ```bash
-qs -p /usr/share/omarchy/shell/shell.qml ipc call minisiowo.dynamic-workspaces.service preview
+omarchy bar set minisiowo.dynamic-workspaces icon "🗂️"
 ```
 
-The same target opens and closes the panel — useful for a Hyprland keybinding:
+## Turning it off
+
+Switch **Apply** off in the panel. Hyprland goes back to whatever workspace rules your own configuration sets up. That is the reversible switch and it is enough day to day.
+
+One thing to know: because the rules live in your Hyprland configuration rather than in the shell's memory, disabling or removing the plugin does **not** stop them on its own — Hyprland keeps reading `rules.lua` for as long as that one line is there. So switch Apply off first, or remove the line:
 
 ```bash
-qs -p /usr/share/omarchy/shell/shell.qml ipc call minisiowo.dynamic-workspaces.service toggle
+omarchy plugin disable minisiowo.dynamic-workspaces
+# remove the pcall(dofile, ...) line from ~/.config/hypr/hyprland.lua
+hyprctl reload
 ```
 
-## Development install
-
-Validate the repository first:
+To put Omarchy's built-in workspace widget back:
 
 ```bash
-omarchy plugin validate .
+omarchy plugin enable omarchy.workspaces --section left
 ```
 
-For local development, link the repository into Omarchy's user plugin directory and enable it:
+## Configuration file
 
-```bash
-ln -s "$PWD" ~/.config/omarchy/plugins/minisiowo.dynamic-workspaces
-omarchy plugin enable minisiowo.dynamic-workspaces --section left
-```
-
-The shell hot-reloads changes under the plugin directory. Restart it with `omarchy-restart-shell` when a reload is not enough — not `omarchy-refresh-shell`, which resets `~/.config/omarchy/shell.json` to Omarchy's defaults and drops your bar layout.
-
-The profile logic is a plain `.pragma library` with no QML dependencies, so it is tested in Node:
-
-```bash
-node tests/profile-logic.test.mjs
-```
-
-Those tests pin the workspace allocation exactly, because it is implemented twice — in JavaScript for the bar and the panel, and in Lua inside the generated module. The two must agree, or the bar shows workspaces on a monitor Hyprland will not put them on.
-
-## Configuration
-
-The plugin reads:
+Everything above is set from the panel. The file behind it is plain JSON, if you would rather edit it directly:
 
 ```text
 ~/.config/omarchy/dynamic-workspaces/config.json
 ```
 
-Copy `config.example.json` as a starting point. Exact profiles have this shape:
+`config.example.json` in this repository is a starting point. A saved profile looks like this:
 
 ```json
 {
@@ -131,13 +119,9 @@ Copy `config.example.json` as a starting point. Exact profiles have this shape:
 }
 ```
 
-Monitor matching uses EDID descriptions rather than connector names such as `DP-7`.
+Monitors are matched by the description they report, not by connector names such as `DP-7`, so they survive being plugged into a different port.
 
-### The default profile
-
-Exactly one profile may use `"mode": "default"`. It is selected whenever no exact profile matches the connected monitors, and it is the reason plugging in an unfamiliar screen never leaves you looking at an empty bar.
-
-Unlike an exact profile, it does not have to name the monitors it applies to. Every connected monitor it does not assign by hand gets its own block of consecutive workspaces, laid out left to right:
+Exactly one profile may use `"mode": "default"`. That is the one used when nothing else matches, and it is what hands unfamiliar screens their own workspaces:
 
 ```json
 {
@@ -148,47 +132,90 @@ Unlike an exact profile, it does not have to name the monitors it applies to. Ev
 }
 ```
 
-One unknown monitor gets `1 2 3`; two get `1 2 3` and `4 5 6`; three get a third block of `7 8 9`. `perMonitor` is clamped to 1–10, so the ids stay within reach of the number-key bindings.
+`perMonitor` is how many workspaces each unrecognised screen gets, clamped to 1–10 so the ids stay within reach of the number keys.
 
-Assignments you write by hand still win, and their ids are reserved — the automatic blocks route around them rather than colliding. With `"Home Screen": [1, 5]` pinned and two unknown monitors either side of it, the result is `2 3 4`, then `1 5`, then `6 7 8`.
+How assignments are applied lives in the same file:
 
-When the connected monitors match no exact profile, the panel offers to save them as one. It records the layout it is showing — the resolved allocation — so what you save is what you were looking at, whether or not Apply is on.
-
-The panel marks an automatically assigned monitor with an **AUTO** badge. Editing any of them writes the whole visible layout into the profile at once, and the badges disappear — from then on the default profile behaves like an exact one. It has to work that way: the allocation is recomputed from the stored assignments, so pinning a single monitor would change the pool the others draw from and renumber them out from under you.
-
-Because the monitors are unknown until Hyprland reports them — and a workspace rule's monitor cannot be changed once the rule exists — the generated module carries the allocation rule itself and builds the rules when the monitors appear, rather than shipping pre-computed groups.
-
-Two screens of the same model report the same EDID description. Assignments and Hyprland's `desc:` selector are both keyed by it, so neither can address one of them alone — they are resolved as a single logical monitor sharing one set of workspaces, and the panel marks their cards **SHARED**. An exact profile does not help here; the limitation is in what `desc:` can express.
-
-The bar icon can be changed to any text, emoji, or Nerd Font glyph:
-
-```bash
-omarchy bar set minisiowo.dynamic-workspaces icon "🗂️"
+```json
+"apply": {
+  "enabled": false,
+  "persistent": true,
+  "debounceMs": 1200
+}
 ```
 
-## Disable and rollback
+`enabled` is the panel switch. `persistent` keeps configured workspaces alive even when they hold no windows, which is how most static Hyprland workspace setups behave. `debounceMs` is how long the set of screens has to stay unchanged before the profile switches.
 
-Turning **Apply** off in the panel rewrites `rules.lua` as a module that claims nothing, so Hyprland falls back to the workspace rules in your own config. That is the reversible switch, and it is enough for everyday use.
-
-Because the rules live in the config rather than in the shell's memory, disabling or removing the plugin does **not** stop them — Hyprland keeps loading `rules.lua` for as long as the `dofile` line is there. Turn Apply off first, or drop the line:
+Two commands are worth knowing. To see exactly what would be handed to Hyprland, without applying anything:
 
 ```bash
-omarchy plugin disable minisiowo.dynamic-workspaces
-# remove the pcall(dofile, ...) line from ~/.config/hypr/hyprland.lua
-hyprctl reload
+qs -p /usr/share/omarchy/shell/shell.qml ipc call minisiowo.dynamic-workspaces.service preview
 ```
 
-To put Omarchy's built-in workspace widget back after disabling:
+And to open or close the panel — useful on a Hyprland keybinding:
 
 ```bash
-omarchy plugin enable omarchy.workspaces --section left
+qs -p /usr/share/omarchy/shell/shell.qml ipc call minisiowo.dynamic-workspaces.service toggle
 ```
 
-For a development symlink, remove it after disabling:
+## How it works
+
+Everything below is detail. You do not need it to use the plugin.
+
+### Why a generated Lua file
+
+Assignments reach Hyprland as a small generated Lua module rather than as runtime commands, because the runtime routes do not hold. `hyprctl keyword` is refused outright once Hyprland is configured in Lua (*"keyword can't work with non-legacy parsers"*), and rules created through `hyprctl eval` live only in memory, so any configuration reload — a theme change, an edit anywhere — silently drops them. Rules that live in the configuration survive reloads, and Hyprland does the profile switching itself.
+
+That module is `~/.config/omarchy/dynamic-workspaces/rules.lua`, rewritten whenever you change a profile, followed by `hyprctl reload config-only`. From then on it reacts to `monitor.added`, `monitor.removed`, and `monitor.layout_changed` on its own. Those events are debounced inside the module — 1.2 s by default — so opening a lid, waking, or docking picks a profile once, from the state that lasts, instead of chasing every intermediate arrangement.
+
+### How unknown screens get their workspaces
+
+The default profile does not name the monitors it applies to, so its layout is worked out at the moment it is used: every connected screen it does not assign by hand takes the next free block of consecutive ids, ordered left to right by position. One unknown screen gets `1 2 3`, two get `1 2 3` and `4 5 6`, three get a third block of `7 8 9`.
+
+Assignments written by hand win, and their ids are reserved — the automatic blocks route around them rather than colliding. With `"Home Screen": [1, 5]` pinned and two unknown monitors either side of it, the result is `2 3 4`, then `1 5`, then `6 7 8`.
+
+Editing an automatically assigned screen writes the **whole** visible layout into the profile at once, which is why the AUTO badges all disappear together. It has to work that way: the allocation is recomputed from the stored assignments, so pinning a single screen would change the pool the others draw from and renumber them out from under you.
+
+Saving an unrecognised setup as a profile records the layout the panel is showing rather than where Hyprland currently happens to put things. The two agree once Apply is on; before that they need not, and what you saw is what you meant to save.
+
+### Screens that cannot be told apart
+
+Monitors are addressed by the description they report, and two screens of the same model report the same one. Hyprland's `desc:` selector cannot single one of them out, and neither can the assignments, so they are resolved as a single logical monitor sharing one set of workspaces. A hand-written profile does not help; the limit is in what `desc:` can express.
+
+### Why the rules are built late
+
+A workspace rule's monitor is fixed when the rule is created, and the screens the default profile applies to are unknown until Hyprland reports them. So the generated module carries the allocation rule itself and builds its rules once the monitors exist, rather than shipping a pre-computed list.
+
+## Development
+
+Validate the repository first:
+
+```bash
+omarchy plugin validate .
+```
+
+For local development, link it into Omarchy's user plugin directory and enable it:
+
+```bash
+ln -s "$PWD" ~/.config/omarchy/plugins/minisiowo.dynamic-workspaces
+omarchy plugin enable minisiowo.dynamic-workspaces --section left
+```
+
+The shell hot-reloads changes under the plugin directory. Restart it with `omarchy-restart-shell` when a reload is not enough — not `omarchy-refresh-shell`, which resets `~/.config/omarchy/shell.json` to Omarchy's defaults and drops your bar layout.
+
+To remove the development symlink after disabling:
 
 ```bash
 rm ~/.config/omarchy/plugins/minisiowo.dynamic-workspaces
 ```
+
+The profile logic is a plain `.pragma library` with no QML dependencies, so it is tested in Node:
+
+```bash
+node tests/profile-logic.test.mjs
+```
+
+Those tests pin the workspace allocation exactly, because it is implemented twice — in JavaScript for the bar and the panel, and in Lua inside the generated module. The two must agree, or the bar shows workspaces on a monitor Hyprland will not put them on.
 
 ## Roadmap
 
@@ -196,7 +223,7 @@ rm ~/.config/omarchy/plugins/minisiowo.dynamic-workspaces
 - `0.2`: profile editor and drag-and-drop workspace assignment;
 - `0.3`: opt-in Hyprland rule generation with clamshell debounce;
 - `0.4`: a default profile that assigns unrecognised monitors on its own;
-- `1.0`: documentation, screenshots, release and listing on omarchyplugins.com.
+- `1.0`: screenshots, release and listing on omarchyplugins.com.
 
 ## License
 
