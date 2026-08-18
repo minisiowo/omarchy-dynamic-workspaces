@@ -100,6 +100,15 @@ BarWidget {
           ? ""
           : "Workspace " + chip.modelData.id + " · " + chip.modelData.monitor
         active: chip.chipFocused
+        // WidgetButton paints its active state with the bar's `active` role,
+        // which every theme sets to its own red — `shell.toml.tpl` hardcodes
+        // `active = "{{ red }}"` and documents it as the color for "modules
+        // calling attention to themselves (recording, voxtype, alerts,
+        // updates)". That is an alert role, and the workspace you are looking
+        // at is not an alert, so the focused chip came out red under every
+        // theme. The accent is the role that means "this one", and the panel
+        // already marks the same workspace with it.
+        activeColor: Color.accent
         // The divider is chrome, so it sits at the same weight as an idle
         // workspace rather than competing with the live ones.
         opacity: chip.isDivider ? 0.5 : (chip.chipOccupied || chip.chipFocused ? 1.0 : 0.5)

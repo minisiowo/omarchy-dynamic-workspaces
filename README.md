@@ -2,7 +2,7 @@
 
 A profile-aware workspace manager for monitor setups that change throughout the day.
 
-> **Status:** `0.4.2`. Profiles are editable, persisted, and — once the switch in the panel is on and the one-line hook is in place — applied to Hyprland.
+> **Status:** `0.4.3`. Profiles are editable, persisted, and — once the switch in the panel is on and the one-line hook is in place — applied to Hyprland.
 
 ## Current behavior
 
