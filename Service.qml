@@ -147,8 +147,10 @@ Item {
     var index = ProfileLogic.profileIndex(next, root.activeProfileId)
     if (index < 0) return 0
 
+    // Applied to the same materialized config the id was read from, rather than
+    // going back through moveWorkspace() and materializing a second time.
     var workspaceId = ProfileLogic.nextWorkspaceId(next.profiles[index])
-    moveWorkspace(workspaceId, monitorDescription)
+    applyConfig(ProfileLogic.moveWorkspaceAt(next, root.activeProfileId, workspaceId, monitorDescription, undefined))
     return workspaceId
   }
 
@@ -167,32 +169,27 @@ Item {
     applyConfig(ProfileLogic.setDivider(root.config, root.activeProfileId, divider))
   }
 
-  // Read imperatively, at the moment the setup is saved: the live workspace
-  // list is not something the profile should track, only something to snapshot
-  // once when the user asks for it.
-  function assignmentsFromCurrentWorkspaces() {
+  // Saves what the panel is showing, not where Hyprland currently happens to
+  // put things. The two agree once Apply is on, because the module has already
+  // imposed the layout — but Apply is off by default, and then the panel shows
+  // the allocation while the compositor still follows the user's own config.
+  // Saving the visible layout is what makes the button predictable: you get
+  // what you were looking at.
+  function assignmentsFromGroups() {
     var assignments = {}
-    var monitorNames = {}
+    var groups = root.groups
 
-    for (var monitorIndex = 0; monitorIndex < root.activeMonitors.length; monitorIndex++) {
-      var monitor = root.activeMonitors[monitorIndex]
-      if (!monitor) continue
-      var description = String(monitor.description || monitor.name || "")
-      assignments[description] = []
-      monitorNames[String(monitor.name || "")] = description
+    for (var groupIndex = 0; groupIndex < groups.length; groupIndex++) {
+      var group = groups[groupIndex]
+      var ids = []
+
+      for (var workspaceIndex = 0; workspaceIndex < group.workspaces.length; workspaceIndex++)
+        ids.push(Number(group.workspaces[workspaceIndex].id))
+
+      // Screens sharing an EDID description resolve to one group, so the
+      // second one would only rewrite the first with the same ids.
+      if (assignments[group.description] === undefined) assignments[group.description] = ids
     }
-
-    var workspaces = Hyprland.workspaces.values
-    for (var workspaceIndex = 0; workspaceIndex < workspaces.length; workspaceIndex++) {
-      var workspace = workspaces[workspaceIndex]
-      if (!workspace || Number(workspace.id) <= 0) continue
-      var monitorName = workspace.monitor ? String(workspace.monitor.name || "") : ""
-      var target = monitorNames[monitorName]
-      if (target && assignments[target]) assignments[target].push(Number(workspace.id))
-    }
-
-    for (var descriptionKey in assignments)
-      assignments[descriptionKey].sort(function(left, right) { return left - right })
 
     return assignments
   }
@@ -205,7 +202,7 @@ Item {
       profileId,
       String(name || "Current monitor setup"),
       root.monitorDescriptions,
-      assignmentsFromCurrentWorkspaces()
+      assignmentsFromGroups()
     )
     applyConfig(next)
     return true
@@ -251,16 +248,19 @@ Item {
     reloadProcess.running = true
   }
 
-  // Line by line, skipping Lua comments: a commented-out hook is exactly the
-  // state the panel most needs to report, and a whole-file substring search
-  // would read it as installed and hide the very line that is missing.
+  // Line by line, with each line cut at its comment marker: a commented-out
+  // hook is exactly the state the panel most needs to report, and a plain
+  // substring search over the file would read it as installed and hide the very
+  // line that is missing. Cutting rather than skipping also catches a hook
+  // commented out behind live code on the same line.
   function parseHyprlandConfig(text) {
     var lines = String(text || "").split("\n")
 
     for (var i = 0; i < lines.length; i++) {
-      var line = lines[i].replace(/^\s+/, "")
-      if (line.indexOf("--") === 0) continue
-      if (line.indexOf("dynamic-workspaces/rules.lua") !== -1) {
+      var comment = lines[i].indexOf("--")
+      var code = comment === -1 ? lines[i] : lines[i].slice(0, comment)
+
+      if (code.indexOf("dynamic-workspaces/rules.lua") !== -1) {
         root.hookInstalled = true
         return
       }
@@ -331,6 +331,7 @@ Item {
         name: String(monitor.name || "Unknown monitor"),
         description: descriptions[monitorIndex],
         automatic: group ? group.automatic === true : false,
+        shared: group ? group.shared === true : false,
         workspaces: workspaces
       })
     }

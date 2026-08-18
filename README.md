@@ -2,7 +2,7 @@
 
 A profile-aware workspace manager for monitor setups that change throughout the day.
 
-> **Status:** `0.4.1`. Profiles are editable, persisted, and — once the switch in the panel is on and the one-line hook is in place — applied to Hyprland.
+> **Status:** `0.4.2`. Profiles are editable, persisted, and — once the switch in the panel is on and the one-line hook is in place — applied to Hyprland.
 
 ## Current behavior
 
@@ -14,6 +14,7 @@ A profile-aware workspace manager for monitor setups that change throughout the 
 - falls back to an editable default profile that gives every unrecognised monitor its own block of workspaces;
 - displays only workspace ids configured in the selected profile;
 - adds and removes configured workspace ids;
+- saves the monitor set on screen as a named profile;
 - moves workspace definitions between monitor groups with drag-and-drop;
 - edits arbitrary labels, emoji, Nerd Font glyphs, and the divider;
 - saves the profile atomically outside the plugin checkout;
@@ -127,11 +128,13 @@ One unknown monitor gets `1 2 3`; two get `1 2 3` and `4 5 6`; three get a third
 
 Assignments you write by hand still win, and their ids are reserved — the automatic blocks route around them rather than colliding. With `"Home Screen": [1, 5]` pinned and two unknown monitors either side of it, the result is `2 3 4`, then `1 5`, then `6 7 8`.
 
+When the connected monitors match no exact profile, the panel offers to save them as one. It records the layout it is showing — the resolved allocation — so what you save is what you were looking at, whether or not Apply is on.
+
 The panel marks an automatically assigned monitor with an **AUTO** badge. Editing any of them writes the whole visible layout into the profile at once, and the badges disappear — from then on the default profile behaves like an exact one. It has to work that way: the allocation is recomputed from the stored assignments, so pinning a single monitor would change the pool the others draw from and renumber them out from under you.
 
 Because the monitors are unknown until Hyprland reports them — and a workspace rule's monitor cannot be changed once the rule exists — the generated module carries the allocation rule itself and builds the rules when the monitors appear, rather than shipping pre-computed groups.
 
-Two identical monitors report the same EDID description, so Hyprland's `desc:` selector cannot tell them apart. Give such a setup an exact profile rather than relying on the default one.
+Two screens of the same model report the same EDID description. Assignments and Hyprland's `desc:` selector are both keyed by it, so neither can address one of them alone — they are resolved as a single logical monitor sharing one set of workspaces, and the panel marks their cards **SHARED**. An exact profile does not help here; the limitation is in what `desc:` can express.
 
 The bar icon can be changed to any text, emoji, or Nerd Font glyph:
 

@@ -3,7 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Hyprland
-import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
@@ -79,6 +78,18 @@ BarWidget {
         return values[i].toplevels ? values[i].toplevels.values.length > 0 : false
     }
     return false
+  }
+
+  // The panel is organised by monitor, so "current" has to mean current *on
+  // this monitor*. Hyprland.focusedWorkspace names only the one workspace the
+  // keyboard is on, which would leave every other monitor's card unmarked.
+  function activeWorkspaceOn(monitorName) {
+    var values = Hyprland.monitors.values
+    for (var i = 0; i < values.length; i++) {
+      if (values[i] && String(values[i].name) === monitorName)
+        return values[i].activeWorkspace ? Number(values[i].activeWorkspace.id) : 0
+    }
+    return 0
   }
 
   function selectWorkspace(workspace) {
@@ -503,12 +514,17 @@ BarWidget {
     id: card
     required property var group
 
+    readonly property string name: String(card.group.name)
     readonly property string description: String(card.group.description)
     readonly property int workspaceCount: card.group.workspaces.length
     readonly property bool dropActive: root.dropMonitor === card.description
     // Nothing in the config assigns this monitor: the default profile handed it
     // a block of workspaces so the bar is never empty on an unfamiliar screen.
     readonly property bool automatic: card.group.automatic === true
+    // Another connected screen reports the same EDID description. Assignments
+    // and Hyprland's `desc:` selector are both keyed by it, so the two cannot
+    // be given different workspaces.
+    readonly property bool shared: card.group.shared === true
 
     implicitHeight: cardContent.implicitHeight + Style.space(12) * 2
     color: Qt.rgba(root.panelForeground.r, root.panelForeground.g, root.panelForeground.b, 0.05)
@@ -557,7 +573,34 @@ BarWidget {
 
           PanelToolTip {
             visible: automaticHover.hovered
-            text: "Assigned automatically because no profile names this monitor. Editing it here pins it."
+            text: "Assigned automatically because no profile names this monitor. Editing it here pins the whole layout."
+            fontFamily: root.panelFont
+          }
+        }
+
+        Rectangle {
+          Layout.alignment: Qt.AlignVCenter
+          visible: card.shared
+          implicitWidth: sharedLabel.implicitWidth + Style.space(10)
+          implicitHeight: sharedLabel.implicitHeight + Style.space(4)
+          radius: height / 2
+          color: Qt.rgba(root.panelForeground.r, root.panelForeground.g, root.panelForeground.b, 0.10)
+
+          Text {
+            id: sharedLabel
+            anchors.centerIn: parent
+            text: "SHARED"
+            color: root.panelDim
+            font.family: root.panelFont
+            font.pixelSize: Style.font.caption
+            font.bold: true
+          }
+
+          HoverHandler { id: sharedHover }
+
+          PanelToolTip {
+            visible: sharedHover.hovered
+            text: "Another connected screen reports the same description, and Hyprland cannot tell them apart. They share one set of workspaces."
             fontFamily: root.panelFont
           }
         }
@@ -607,8 +650,11 @@ BarWidget {
             // Live compositor state, read here rather than carried in the
             // service's model: folding it into the model would rebuild every
             // chip in the panel on each focus change, mid-drag included.
-            readonly property bool focused: Hyprland.focusedWorkspace !== null
-              && Hyprland.focusedWorkspace.id === chipCell.workspaceId
+            //
+            // "Current on its own monitor" rather than "holds the keyboard":
+            // each card then marks the workspace that screen is actually
+            // showing, which is the question the panel is laid out to answer.
+            readonly property bool focused: root.activeWorkspaceOn(card.name) === chipCell.workspaceId
             readonly property bool occupied: root.workspaceOccupied(chipCell.workspaceId)
             readonly property bool markBefore: card.dropActive && root.dropIndex === chipCell.index
             readonly property bool markAfter: card.dropActive
