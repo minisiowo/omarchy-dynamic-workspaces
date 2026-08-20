@@ -123,7 +123,8 @@ Everything above is set from the panel. The file behind it is plain JSON, if you
   "labels": {
     "1": "💻",
     "4": "🌐"
-  }
+  },
+  "divider": "|"
 }
 ```
 
@@ -152,7 +153,9 @@ How assignments are applied lives in the same file:
 }
 ```
 
-How the bar marks the focused workspace lives in the same file, outside the profiles, because it does not change with the screens you have plugged in:
+`enabled` is the panel switch. `persistent` keeps configured workspaces alive even when they hold no windows, which is how most static Hyprland workspace setups behave. `debounceMs` is how long the set of screens has to stay unchanged before the profile switches.
+
+How the bar marks the focused workspace sits beside it, outside the profiles, because it does not change with the screens you have plugged in:
 
 ```json
 "appearance": {
@@ -161,8 +164,6 @@ How the bar marks the focused workspace lives in the same file, outside the prof
 ```
 
 `focusMark` is the character the focused workspace shows instead of its number. Empty is the **Color** setting: the number stays and only the color marks it.
-
-`enabled` is the panel switch. `persistent` keeps configured workspaces alive even when they hold no windows, which is how most static Hyprland workspace setups behave. `debounceMs` is how long the set of screens has to stay unchanged before the profile switches.
 
 Two commands are worth knowing. To see exactly what would be handed to Hyprland, without applying anything:
 
@@ -219,7 +220,7 @@ ln -s "$PWD" ~/.config/omarchy/plugins/minisiowo.dynamic-workspaces
 omarchy plugin enable minisiowo.dynamic-workspaces --section left
 ```
 
-The shell hot-reloads changes under the plugin directory. Restart it with `omarchy-restart-shell` when a reload is not enough — not `omarchy-refresh-shell`, which resets `~/.config/omarchy/shell.json` to Omarchy's defaults and drops your bar layout.
+Restart the shell with `omarchy-restart-shell` after every change. The shell does watch the plugin directory, but it watches it with `inotifywait -r`, which does not follow the symlink you just made, so nothing you edit here ever reaches a running shell on its own. Use `omarchy-restart-shell` — not `omarchy-refresh-shell`, which resets `~/.config/omarchy/shell.json` to Omarchy's defaults and drops your bar layout.
 
 To remove the development symlink after disabling:
 
