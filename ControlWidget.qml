@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Hyprland
+import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
@@ -24,6 +25,9 @@ BarWidget {
     ? bar.shell.serviceFor(root.moduleName)
     : null
   readonly property string configuredIcon: String(setting("icon", "󰕰"))
+  // The field a pending paste belongs to. Cleared as soon as it lands, so a
+  // result that arrives after the panel moved on has nowhere to go.
+  property var pasteTarget: null
   readonly property bool opened: popupOpen
   readonly property color panelForeground: bar ? bar.foreground : Color.foreground
   readonly property color panelDim: Qt.darker(panelForeground, 1.55)
@@ -70,6 +74,31 @@ BarWidget {
   function close() { popupOpen = false }
   function closeForPopoutSwitch() { close() }
   function togglePanel() { popupOpen = !popupOpen }
+
+  // Qt's own clipboard hands back nothing on this surface, which is why the rest
+  // of the shell shells out to wl-copy / wl-paste as well. Without this, the
+  // panel's text fields can only be typed into.
+  function pasteInto(field) {
+    if (!field || pasteProcess.running) return
+    root.pasteTarget = field
+    pasteProcess.running = true
+  }
+
+  function finishPaste(raw) {
+    var field = root.pasteTarget
+    root.pasteTarget = null
+    if (!field) return
+
+    // These fields are all labels on a bar: one line, and not an essay. A
+    // clipboard holding a file or a paragraph would otherwise be pasted whole.
+    var value = String(raw || "").split("\n")[0].substring(0, 64)
+    if (value === "") return
+
+    // insert() leaves a selection where it is, and the mark field selects its
+    // contents when it opens, so the old value has to go first.
+    if (field.selectedText !== "") field.remove(field.selectionStart, field.selectionEnd)
+    field.insert(field.cursorPosition, value)
+  }
 
   function workspaceOccupied(id) {
     var values = Hyprland.workspaces.values
@@ -412,6 +441,12 @@ BarWidget {
                 foreground: root.panelForeground
                 accent: Color.accent
                 onAccepted: saveLabelButton.clicked()
+                Keys.onPressed: function(event) {
+                  if (event.matches(StandardKey.Paste)) {
+                    root.pasteInto(labelEditor)
+                    event.accepted = true
+                  }
+                }
               }
 
               Button {
@@ -440,11 +475,18 @@ BarWidget {
             }
           }
 
-          PanelSeparator { foreground: root.panelForeground }
+          // The bar only draws a divider between two groups, so with a single
+          // screen there is nothing for this to divide.
+          PanelSeparator {
+            foreground: root.panelForeground
+            visible: dividerSection.visible
+          }
 
           Column {
+            id: dividerSection
             width: parent.width
             spacing: Style.spacing.labelGap
+            visible: root.service && root.service.populatedGroupCount > 1
 
             PanelSectionHeader {
               text: "DIVIDER"
@@ -466,6 +508,12 @@ BarWidget {
                 foreground: root.panelForeground
                 accent: Color.accent
                 onAccepted: saveDividerButton.clicked()
+                Keys.onPressed: function(event) {
+                  if (event.matches(StandardKey.Paste)) {
+                    root.pasteInto(dividerEditor)
+                    event.accepted = true
+                  }
+                }
               }
 
               Button {
@@ -504,7 +552,8 @@ BarWidget {
             // again, and switching away does not leave a value behind that would
             // outlive the panel.
             readonly property string mark: root.service ? String(root.service.focusMark) : ""
-            property string lastMark: "\u25cf"
+            readonly property string defaultMark: root.service ? String(root.service.defaultFocusMark) : "\u25cf"
+            property string lastMark: focusSection.defaultMark
             property bool editing: false
 
             onMarkChanged: if (mark !== "") lastMark = mark
@@ -558,7 +607,7 @@ BarWidget {
                 Layout.preferredWidth: Style.space(60)
                 Layout.alignment: Qt.AlignVCenter
                 visible: focusSection.editing
-                placeholderText: "\u25cf"
+                placeholderText: focusSection.defaultMark
                 horizontalAlignment: Text.AlignHCenter
                 foreground: root.panelForeground
                 accent: Color.accent
@@ -584,6 +633,28 @@ BarWidget {
                 onAccepted: {
                   focusSection.editing = false
                   if (root.service) root.service.setFocusMark(focusMarkEditor.text)
+                }
+                Keys.onPressed: function(event) {
+                  if (event.matches(StandardKey.Paste)) {
+                    root.pasteInto(focusMarkEditor)
+                    event.accepted = true
+                  }
+                }
+              }
+
+              // Only worth showing once the character is something you picked:
+              // there is nothing to undo while it is off or still the default.
+              PanelActionButton {
+                Layout.alignment: Qt.AlignVCenter
+                visible: focusSection.mark !== "" && focusSection.mark !== focusSection.defaultMark
+                iconText: "󰕌"
+                tooltipText: "Back to the default mark"
+                foreground: root.panelForeground
+                hoverColor: Color.accent
+                fontFamily: root.panelFont
+                onClicked: {
+                  focusSection.editing = false
+                  if (root.service) root.service.setFocusMark(focusSection.defaultMark)
                 }
               }
 
@@ -619,6 +690,23 @@ BarWidget {
   // the draggable chip row. Chips are laid out flush with the header text; the
   // insertion marker is drawn inside the chip cells rather than as extra
   // spacer items, so nothing shifts sideways while a drag is in flight.
+  Process {
+    id: pasteProcess
+    command: ["wl-paste", "--no-newline"]
+    running: false
+
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.finishPaste(text)
+    }
+
+    // An empty clipboard, one holding an image, or no wl-paste at all: nothing
+    // to insert, and nothing to say about it either.
+    onExited: function(exitCode) {
+      if (exitCode !== 0) root.pasteTarget = null
+    }
+  }
+
   component MonitorCard: Rectangle {
     id: card
     required property var group

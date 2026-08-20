@@ -72,6 +72,12 @@ the character the bar paints on the focused workspace; if any of it leaked into
 the rendered Lua, changing that character would reload Hyprland. A test asserts
 the rendered text is unchanged by it.
 
+**Qt's clipboard is dead on the panel's surface.** Text fields there can only be
+typed into: Ctrl+V hands back nothing, which is why the rest of the Omarchy shell
+shells out to `wl-copy` / `wl-paste` too. Every field in `ControlWidget.qml` routes
+`StandardKey.Paste` through `root.pasteInto()`, which reads the clipboard with
+`wl-paste`. A new field without that handler will silently refuse to paste.
+
 **The hook line lives in three places** and they have to agree: `Service.hookLine`,
 `Service.parseHyprlandConfig()` which detects it, and the header comment
 `renderRules()` writes into `rules.lua`. The plugin never edits anything under

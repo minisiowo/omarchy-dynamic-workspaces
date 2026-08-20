@@ -72,9 +72,9 @@ After the first run there is nothing to do. Dock, undock, close the lid, wake th
 
 **Two identical monitors** report the same name to the system, and Hyprland cannot tell them apart, so they share one set of workspaces and their cards are marked **SHARED**.
 
-On the bar, the workspace you are looking at is drawn in the bar's own color, and the ones holding windows in your theme's accent — one bright mark among the busy ones, rather than the other way round. If color alone is not enough, the panel's **Replace** button shows a character in place of that workspace's number instead; click it again to change the character to any text, emoji, or Nerd Font glyph.
+On the bar, the workspace you are looking at is drawn in the bar's own color, and the ones holding windows in your theme's accent — one bright mark among the busy ones, rather than the other way round. If color alone is not enough, the panel's **Replace** button shows a character in place of that workspace's number instead; click it again to change the character to any text, emoji, or Nerd Font glyph, and use the arrow beside it to go back to the default dot.
 
-The panel also holds the **divider** shown between monitor groups on the bar. The bar icon itself is any text, emoji, or Nerd Font glyph you like:
+The panel also holds the **divider** shown between monitor groups on the bar — it appears only while two or more of your screens have workspaces, since that is the only time anything is drawn between them. The bar icon itself is any text, emoji, or Nerd Font glyph you like:
 
 ```bash
 omarchy bar set minisiowo.dynamic-workspaces icon "🗂️"

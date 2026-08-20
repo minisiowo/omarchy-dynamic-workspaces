@@ -62,6 +62,13 @@ function applySettings(value) {
 // change when you dock. Left uncapped on purpose: workspace labels and the
 // divider are free text too, and cutting a string at a fixed length would split
 // an emoji built from several UTF-16 units.
+// The character the panel offers when nothing has been chosen, and the one its
+// reset goes back to. Lives here so the panel, the placeholder, and the reset
+// all read the same value.
+function defaultFocusMark() {
+  return "\u25cf"
+}
+
 function appearanceSettings(value) {
   var appearance = asObject(asObject(value).appearance)
   var mark = String(appearance.focusMark === undefined || appearance.focusMark === null ? "" : appearance.focusMark).trim()

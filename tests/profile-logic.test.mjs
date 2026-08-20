@@ -104,6 +104,12 @@ assert.equal(context.applySettings(config).enabled, false, "the source config is
 // ---------------------------------------------------------------- appearance
 
 assert.equal(context.appearanceSettings({}).focusMark, "", "the bar keeps the number until a character is given")
+assert.equal(context.defaultFocusMark(), "\u25cf")
+assert.equal(
+  context.appearanceSettings({ appearance: { focusMark: context.defaultFocusMark() } }).focusMark,
+  context.defaultFocusMark(),
+  "the panel's reset must set something that survives a save"
+)
 assert.equal(context.appearanceSettings({ appearance: { focusMark: "  \u25aa  " } }).focusMark, "\u25aa")
 assert.equal(context.appearanceSettings({ appearance: { focusMark: "   " } }).focusMark, "", "whitespace is not a mark")
 assert.equal(context.appearanceSettings({ appearance: { focusMark: "\u{1f7e2}" } }).focusMark, "\u{1f7e2}", "a mark is never cut to length, so an emoji survives whole")

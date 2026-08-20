@@ -59,6 +59,7 @@ Item {
   // on every screen the moment it is saved.
   readonly property var appearance: ProfileLogic.appearanceSettings(config)
   readonly property string focusMark: appearance.focusMark
+  readonly property string defaultFocusMark: ProfileLogic.defaultFocusMark()
   readonly property string renderedRules: ProfileLogic.renderRules(config, { configPath: configPath })
   readonly property var monitorDescriptions: ProfileLogic.monitorDescriptions(activeMonitors)
   readonly property string monitorSignature: ProfileLogic.signature(monitorDescriptions)
@@ -68,6 +69,15 @@ Item {
   readonly property string activeProfileMode: activeProfile && activeProfile.match ? String(activeProfile.match.mode || "") : ""
   readonly property string activeDivider: activeProfile ? String(activeProfile.divider === undefined ? "|" : activeProfile.divider) : "|"
   readonly property var groups: buildGroups()
+  // The bar draws a divider between groups, so it needs two of them to draw one
+  // at all. The panel hides the setting on the same test.
+  readonly property int populatedGroupCount: {
+    var count = 0
+    for (var i = 0; i < groups.length; i++) {
+      if (groups[i] && groups[i].workspaces.length > 0) count++
+    }
+    return count
+  }
 
   // Panel open/close arrives here rather than at the bar widget. A widget-level
   // IPC target is claimed by whichever instance registers first, and the bar
