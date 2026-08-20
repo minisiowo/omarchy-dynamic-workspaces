@@ -498,6 +498,17 @@ BarWidget {
             width: parent.width
             spacing: Style.spacing.labelGap
 
+            // Empty means the number stays, so the stored character is the whole
+            // setting. The last one used is remembered here rather than in the
+            // config, so switching to Color and back does not make you type it
+            // again, and switching away does not leave a value behind that would
+            // outlive the panel.
+            readonly property string mark: root.service ? String(root.service.focusMark) : ""
+            property string lastMark: "\u25cf"
+            property bool editing: false
+
+            onMarkChanged: if (mark !== "") lastMark = mark
+
             PanelSectionHeader {
               text: "ACTIVE WORKSPACE"
               foreground: root.panelForeground
@@ -508,28 +519,72 @@ BarWidget {
               width: parent.width
               spacing: Style.spacing.controlGap
 
-              // The character is its own switch: there is nothing to turn on,
-              // you either give it one or leave the field empty.
+              Button {
+                Layout.alignment: Qt.AlignVCenter
+                text: "Color"
+                bordered: true
+                selected: focusSection.mark === ""
+                foreground: root.panelForeground
+                fontFamily: root.panelFont
+                onClicked: {
+                  focusSection.editing = false
+                  if (root.service) root.service.setFocusMark("")
+                }
+              }
+
+              // One button doing two jobs, so the character does not need a row
+              // of its own: off, it says what it does; on, it shows the character
+              // it is painting, and clicking it again turns it into the field
+              // that edits it.
+              Button {
+                Layout.alignment: Qt.AlignVCenter
+                visible: !focusSection.editing
+                text: focusSection.mark === "" ? "Replace" : focusSection.mark
+                bordered: true
+                selected: focusSection.mark !== ""
+                foreground: root.panelForeground
+                fontFamily: root.panelFont
+                onClicked: {
+                  if (focusSection.mark === "") {
+                    if (root.service) root.service.setFocusMark(focusSection.lastMark)
+                  } else {
+                    focusSection.editing = true
+                  }
+                }
+              }
+
               TextField {
                 id: focusMarkEditor
-                Layout.preferredWidth: Style.space(90)
+                Layout.preferredWidth: Style.space(60)
                 Layout.alignment: Qt.AlignVCenter
-                text: root.service ? String(root.service.focusMark) : ""
+                visible: focusSection.editing
                 placeholderText: "\u25cf"
                 horizontalAlignment: Text.AlignHCenter
                 foreground: root.panelForeground
                 accent: Color.accent
-                onAccepted: saveFocusMarkButton.clicked()
-              }
+                // Tracked rather than trusting the first focus change: the
+                // panel primes its own key catcher when it opens, so a field
+                // that has not been typed in yet can see focus taken away from
+                // it and must not read that as the user leaving.
+                property bool everFocused: false
 
-              Button {
-                id: saveFocusMarkButton
-                Layout.alignment: Qt.AlignVCenter
-                text: "Save"
-                bordered: true
-                foreground: root.panelForeground
-                fontFamily: root.panelFont
-                onClicked: if (root.service) root.service.setFocusMark(focusMarkEditor.text)
+                onVisibleChanged: if (visible) {
+                  text = focusSection.mark
+                  everFocused = false
+                  forceActiveFocus()
+                  selectAll()
+                }
+                // Leaving the field is as good as pressing Enter: there is no
+                // Save button beside it any more, and losing the edit because
+                // you clicked elsewhere would be worse than keeping it.
+                onActiveFocusChanged: {
+                  if (activeFocus) everFocused = true
+                  else if (everFocused && focusSection.editing) accepted()
+                }
+                onAccepted: {
+                  focusSection.editing = false
+                  if (root.service) root.service.setFocusMark(focusMarkEditor.text)
+                }
               }
 
               Item { Layout.fillWidth: true }
@@ -537,7 +592,7 @@ BarWidget {
 
             Text {
               width: parent.width
-              text: "The workspace you are looking at is drawn in the bar's own color, the ones holding windows in the accent. Put a character here — text, emoji, or Nerd Font glyph — and the focused workspace shows it in place of its number. Empty keeps the number."
+              text: "The workspace you are looking at is drawn in the bar's own color, the ones holding windows in the accent. Replace shows a character in place of its number instead — click it again to change the character to any text, emoji, or Nerd Font glyph."
               color: root.panelDim
               wrapMode: Text.WordWrap
               font.family: root.panelFont
