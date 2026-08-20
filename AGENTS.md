@@ -69,8 +69,8 @@ time anything is saved. Adding a settings block means adding it there, next to
 
 **Display settings must not reach `renderRules()`.** The `appearance` block picks
 how the bar marks the focused workspace; if any of it leaked into the rendered
-Lua, choosing a focus mark would reload Hyprland. A test asserts the rendered
-text is unchanged by it.
+Lua, changing that mark would reload Hyprland. A test asserts the rendered text
+is unchanged by it.
 
 **The hook line lives in three places** and they have to agree: `Service.hookLine`,
 `Service.parseHyprlandConfig()` which detects it, and the header comment

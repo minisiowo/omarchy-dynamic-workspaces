@@ -54,14 +54,16 @@ function applySettings(value) {
   }
 }
 
-// How the bar marks the workspace you are looking at. This is the one display
-// setting that is not per profile: the divider depends on how a profile groups
-// monitors, but the focus mark is taste, and there is no reason for it to change
-// when you dock. `focusMark` is left uncapped on purpose — workspace labels and
-// the divider are free text too, and cutting a string at a fixed length would
-// split an emoji built from several UTF-16 units.
+// How the bar marks the workspace you are looking at: `color` leaves the number
+// alone and lets the color say it, `replace` puts `focusMark` in place of the
+// number. This is the one display setting that is not per profile — the divider
+// depends on how a profile groups monitors, but the focus mark is taste, and
+// there is no reason for it to change when you dock. `focusMark` is left
+// uncapped on purpose: workspace labels and the divider are free text too, and
+// cutting a string at a fixed length would split an emoji built from several
+// UTF-16 units.
 function focusStyles() {
-  return ["color", "mark", "replace", "pill"]
+  return ["color", "replace"]
 }
 
 function appearanceSettings(value) {

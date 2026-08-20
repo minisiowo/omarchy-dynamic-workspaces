@@ -106,7 +106,7 @@ assert.equal(context.applySettings(config).enabled, false, "the source config is
 const look = context.appearanceSettings({})
 assert.equal(look.focusStyle, "color", "the bar marks the focused workspace by color until told otherwise")
 assert.equal(look.focusMark, "\u25cf")
-assert.equal(context.appearanceSettings({ appearance: { focusStyle: "MARK" } }).focusStyle, "mark")
+assert.equal(context.appearanceSettings({ appearance: { focusStyle: "REPLACE" } }).focusStyle, "replace")
 assert.equal(context.appearanceSettings({ appearance: { focusStyle: "sparkles" } }).focusStyle, "color", "an unknown style falls back rather than painting nothing")
 assert.equal(context.appearanceSettings({ appearance: { focusMark: "  \u25aa  " } }).focusMark, "\u25aa")
 assert.equal(context.appearanceSettings({ appearance: { focusMark: "   " } }).focusMark, "\u25cf")
@@ -114,9 +114,9 @@ assert.equal(context.appearanceSettings({ appearance: { focusMark: "\u{1f7e2}" }
 
 // Same round trip as the apply block: normalizedConfig() rewrites the config
 // down to the keys it names, so a section it forgets is lost on the next save.
-const marked = context.withAppearance(config, { focusStyle: "pill" })
-assert.equal(marked.appearance.focusStyle, "pill")
-assert.equal(context.normalizedConfig(marked).appearance.focusStyle, "pill")
+const marked = context.withAppearance(config, { focusStyle: "replace" })
+assert.equal(marked.appearance.focusStyle, "replace")
+assert.equal(context.normalizedConfig(marked).appearance.focusStyle, "replace")
 assert.equal(marked.appearance.focusMark, "\u25cf", "changing one key keeps the other")
 assert.equal(marked.profiles.length, config.profiles.length)
 assert.equal(marked.apply.enabled, false)
@@ -147,7 +147,7 @@ assert.match(rules, /local fallback = \{/, "the default profile becomes the fall
 // text differs, so a display key leaking in here would make picking a focus
 // mark reload the compositor.
 assert.equal(
-  context.renderRules(context.withAppearance(enabledConfig, { focusStyle: "pill", focusMark: "\u25aa" }), {}),
+  context.renderRules(context.withAppearance(enabledConfig, { focusStyle: "replace", focusMark: "\u25aa" }), {}),
   rules,
   "changing how the bar looks must not touch what Hyprland is told"
 )

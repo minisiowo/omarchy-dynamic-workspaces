@@ -510,7 +510,7 @@ BarWidget {
             }
 
             ButtonGroup {
-              options: ["Color", "Mark", "Replace", "Pill"]
+              options: ["Color", "Replace"]
               value: focusSection.focusStyle.charAt(0).toUpperCase() + focusSection.focusStyle.slice(1)
               foreground: root.panelForeground
               background: root.bar ? root.bar.background : Color.background
@@ -529,9 +529,9 @@ BarWidget {
                 id: focusMarkEditor
                 Layout.preferredWidth: Style.space(90)
                 Layout.alignment: Qt.AlignVCenter
-                // Only Mark and Replace paint it; the other two keep whatever is
-                // stored so switching back does not lose the character.
-                enabled: focusSection.focusStyle === "mark" || focusSection.focusStyle === "replace"
+                // Only Replace paints it; Color keeps whatever is stored so
+                // switching back does not lose the character.
+                enabled: focusSection.focusStyle === "replace"
                 opacity: enabled ? 1.0 : 0.45
                 text: root.service ? String(root.service.focusMark) : "\u25cf"
                 placeholderText: "\u25cf"
@@ -557,7 +557,7 @@ BarWidget {
 
             Text {
               width: parent.width
-              text: "On the bar, the workspace you are looking at is drawn in the bar's own color and the ones holding windows in the accent. Mark puts the character under the number, Replace puts it in place of the number, Pill fills the chip behind it. The character can be any text, emoji, or Nerd Font glyph."
+              text: "On the bar, the workspace you are looking at is drawn in the bar's own color and the ones holding windows in the accent. Replace puts a character of your own in place of its number — any text, emoji, or Nerd Font glyph."
               color: root.panelDim
               wrapMode: Text.WordWrap
               font.family: root.panelFont

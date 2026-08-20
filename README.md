@@ -72,7 +72,7 @@ After the first run there is nothing to do. Dock, undock, close the lid, wake th
 
 **Two identical monitors** report the same name to the system, and Hyprland cannot tell them apart, so they share one set of workspaces and their cards are marked **SHARED**.
 
-On the bar, the workspace you are looking at is drawn in the bar's own color, and the ones holding windows in your theme's accent — one bright mark among the busy ones, rather than the other way round. If color alone is not enough, the panel offers three more ways to mark it: **Mark** puts a character under the number, **Replace** puts it in place of the number, and **Pill** fills the chip behind it. The character is yours — any text, emoji, or Nerd Font glyph — and defaults to a dot.
+On the bar, the workspace you are looking at is drawn in the bar's own color, and the ones holding windows in your theme's accent — one bright mark among the busy ones, rather than the other way round. If color alone is not enough, the panel's **Replace** style swaps that workspace's number for a character of your own — any text, emoji, or Nerd Font glyph, a dot by default.
 
 The panel also holds the **divider** shown between monitor groups on the bar. The bar icon itself is any text, emoji, or Nerd Font glyph you like:
 
@@ -161,7 +161,7 @@ How the bar marks the focused workspace lives in the same file, outside the prof
 }
 ```
 
-`focusStyle` is one of `color`, `mark`, `replace`, or `pill`; anything else falls back to `color`. `focusMark` is the character the `mark` and `replace` styles paint.
+`focusStyle` is either `color` or `replace`; anything else falls back to `color`. `focusMark` is the character the `replace` style paints.
 
 `enabled` is the panel switch. `persistent` keeps configured workspaces alive even when they hold no windows, which is how most static Hyprland workspace setups behave. `debounceMs` is how long the set of screens has to stay unchanged before the profile switches.
 

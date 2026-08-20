@@ -18,7 +18,6 @@ BarWidget {
   // choice is made in the same panel as everything else.
   readonly property string focusStyle: root.service ? String(root.service.focusStyle) : "color"
   readonly property string focusMark: root.service ? String(root.service.focusMark) : "\u25cf"
-  readonly property bool markPainted: root.focusStyle === "mark" || root.focusStyle === "replace"
 
   function liveWorkspaceById(id) {
     var values = Hyprland.workspaces.values
@@ -99,17 +98,9 @@ BarWidget {
           return live !== null && live.toplevels ? live.toplevels.values.length > 0 : false
         }
 
-        readonly property bool markVisible: chip.chipFocused && root.focusStyle === "mark"
-        readonly property bool pillVisible: chip.chipFocused && root.focusStyle === "pill"
-        // The color that says "this one". Held separately from the button's own
-        // `foreground`, which the pill has to invert.
-        readonly property color markColor: root.bar ? root.bar.barForeground : Color.foreground
-        // Small enough to clear the digit above it: the label is centered in a
-        // chip one bar tall, which leaves only a few pixels underneath.
-        readonly property int markSize: Math.max(1, Math.round(chip.fontSize * 0.4))
         // Every chip reserves room for the mark, focused or not, so the bar does
         // not reflow as the focus moves from one workspace to the next.
-        readonly property real slotWidth: root.markPainted
+        readonly property real slotWidth: root.focusStyle === "replace"
           ? Math.max(labelMetrics.width, markMetrics.width)
           : labelMetrics.width
 
@@ -117,9 +108,6 @@ BarWidget {
         text: chip.chipFocused && root.focusStyle === "replace"
           ? root.focusMark
           : chip.modelData.label
-        foreground: chip.pillVisible
-          ? (root.bar ? root.bar.themeContrastForeground : Color.background)
-          : chip.markColor
         labelVisible: !chip.isDivider
         tooltipText: chip.isDivider
           ? ""
@@ -165,35 +153,8 @@ BarWidget {
         TextMetrics {
           id: markMetrics
           font.family: chip.fontFamily
-          font.pixelSize: root.focusStyle === "replace" ? chip.fontSize : chip.markSize
+          font.pixelSize: chip.fontSize
           text: root.focusMark
-        }
-
-        // Behind the label, so the number reads out of the fill rather than
-        // over it. Rounded by half its height because Style.cornerRadius
-        // mirrors Hyprland's window rounding and is 0 on plenty of setups.
-        Rectangle {
-          z: -1
-          visible: chip.pillVisible
-          anchors.centerIn: parent
-          width: parent.width
-          height: Math.max(1, parent.height - Style.spaceReal(8))
-          radius: height / 2
-          color: chip.markColor
-        }
-
-        // Under the number, without moving it: shifting the label would make the
-        // focused workspace sit a line above its neighbours.
-        Text {
-          visible: chip.markVisible
-          anchors.horizontalCenter: parent.horizontalCenter
-          anchors.bottom: parent.bottom
-          anchors.bottomMargin: Style.spaceReal(3)
-          text: root.focusMark
-          color: chip.markColor
-          font.family: chip.fontFamily
-          font.pixelSize: chip.markSize
-          renderType: Text.NativeRendering
         }
 
         DividerGlyph {
