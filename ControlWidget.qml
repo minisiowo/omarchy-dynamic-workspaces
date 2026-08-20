@@ -493,6 +493,80 @@ BarWidget {
 
           PanelSeparator { foreground: root.panelForeground }
 
+          Column {
+            id: focusSection
+            width: parent.width
+            spacing: Style.spacing.labelGap
+
+            // Not per profile, unlike the divider above: which screens are
+            // plugged in says nothing about how you like the focused workspace
+            // marked.
+            readonly property string focusStyle: root.service ? String(root.service.focusStyle) : "color"
+
+            PanelSectionHeader {
+              text: "ACTIVE WORKSPACE"
+              foreground: root.panelForeground
+              fontFamily: root.panelFont
+            }
+
+            ButtonGroup {
+              options: ["Color", "Mark", "Replace", "Pill"]
+              value: focusSection.focusStyle.charAt(0).toUpperCase() + focusSection.focusStyle.slice(1)
+              foreground: root.panelForeground
+              background: root.bar ? root.bar.background : Color.background
+              accent: Color.accent
+              fontFamily: root.panelFont
+              onChanged: function(style) {
+                if (root.service) root.service.setFocusStyle(style)
+              }
+            }
+
+            RowLayout {
+              width: parent.width
+              spacing: Style.spacing.controlGap
+
+              TextField {
+                id: focusMarkEditor
+                Layout.preferredWidth: Style.space(90)
+                Layout.alignment: Qt.AlignVCenter
+                // Only Mark and Replace paint it; the other two keep whatever is
+                // stored so switching back does not lose the character.
+                enabled: focusSection.focusStyle === "mark" || focusSection.focusStyle === "replace"
+                opacity: enabled ? 1.0 : 0.45
+                text: root.service ? String(root.service.focusMark) : "\u25cf"
+                placeholderText: "\u25cf"
+                horizontalAlignment: Text.AlignHCenter
+                foreground: root.panelForeground
+                accent: Color.accent
+                onAccepted: saveFocusMarkButton.clicked()
+              }
+
+              Button {
+                id: saveFocusMarkButton
+                Layout.alignment: Qt.AlignVCenter
+                text: "Save"
+                bordered: true
+                enabled: focusMarkEditor.enabled
+                foreground: root.panelForeground
+                fontFamily: root.panelFont
+                onClicked: if (root.service) root.service.setFocusMark(focusMarkEditor.text)
+              }
+
+              Item { Layout.fillWidth: true }
+            }
+
+            Text {
+              width: parent.width
+              text: "On the bar, the workspace you are looking at is drawn in the bar's own color and the ones holding windows in the accent. Mark puts the character under the number, Replace puts it in place of the number, Pill fills the chip behind it. The character can be any text, emoji, or Nerd Font glyph."
+              color: root.panelDim
+              wrapMode: Text.WordWrap
+              font.family: root.panelFont
+              font.pixelSize: Style.font.caption
+            }
+          }
+
+          PanelSeparator { foreground: root.panelForeground }
+
           Text {
             width: parent.width
             text: "Drag a chip to reorder it or move it to another monitor. Click a chip to rename it."

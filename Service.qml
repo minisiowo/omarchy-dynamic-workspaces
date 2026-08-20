@@ -54,6 +54,11 @@ Item {
 
   readonly property var applySettings: ProfileLogic.applySettings(config)
   readonly property bool applyEnabled: applySettings.enabled
+  // How the bar marks the focused workspace. Read straight off the config so a
+  // change reaches every bar on every screen the moment it is saved.
+  readonly property var appearance: ProfileLogic.appearanceSettings(config)
+  readonly property string focusStyle: appearance.focusStyle
+  readonly property string focusMark: appearance.focusMark
   readonly property string renderedRules: ProfileLogic.renderRules(config, { configPath: configPath })
   readonly property var monitorDescriptions: ProfileLogic.monitorDescriptions(activeMonitors)
   readonly property string monitorSignature: ProfileLogic.signature(monitorDescriptions)
@@ -81,6 +86,7 @@ Item {
     return {
       version: 1,
       apply: { enabled: false, persistent: true, debounceMs: 1200 },
+      appearance: { focusStyle: "color", focusMark: "\u25cf" },
       profiles: [{
         id: "default",
         name: "Default",
@@ -167,6 +173,17 @@ Item {
   function setDivider(divider) {
     if (root.activeProfileId === "") return
     applyConfig(ProfileLogic.setDivider(root.config, root.activeProfileId, divider))
+  }
+
+  // Appearance is not part of any profile, so these go through root.config
+  // rather than editableConfig() — there is nothing about the layout to write
+  // down first.
+  function setFocusStyle(style) {
+    applyConfig(ProfileLogic.withAppearance(root.config, { focusStyle: style }))
+  }
+
+  function setFocusMark(mark) {
+    applyConfig(ProfileLogic.withAppearance(root.config, { focusMark: mark }))
   }
 
   // Saves what the panel is showing, not where Hyprland currently happens to
@@ -441,6 +458,7 @@ Item {
         configError: root.configError,
         editable: true,
         apply: root.applySettings,
+        appearance: root.appearance,
         hookInstalled: root.hookInstalled,
         rulesPath: root.rulesPath,
         appliedAt: root.appliedAt,
@@ -493,6 +511,16 @@ Item {
     function setProfileDivider(divider: string): string {
       root.setDivider(divider)
       return "ok"
+    }
+
+    function setFocusStyle(style: string): string {
+      root.setFocusStyle(style)
+      return root.focusStyle
+    }
+
+    function setFocusMark(mark: string): string {
+      root.setFocusMark(mark)
+      return root.focusMark
     }
   }
 

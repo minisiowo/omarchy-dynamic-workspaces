@@ -62,6 +62,16 @@ Hyprland, and `Service.writeRules()` skips that only when the text is byte-ident
 to what is on disk. That is why `rulesProfile()` sorts its assignment keys —
 reordering keys by hand must not rewrite the file.
 
+**`normalizedConfig()` is the whole config schema.** It rewrites the config down
+to the keys it names, so a section it does not list is silently dropped the next
+time anything is saved. Adding a settings block means adding it there, next to
+`applySettings()` and `appearanceSettings()`, not only where it is read.
+
+**Display settings must not reach `renderRules()`.** The `appearance` block picks
+how the bar marks the focused workspace; if any of it leaked into the rendered
+Lua, choosing a focus mark would reload Hyprland. A test asserts the rendered
+text is unchanged by it.
+
 **The hook line lives in three places** and they have to agree: `Service.hookLine`,
 `Service.parseHyprlandConfig()` which detects it, and the header comment
 `renderRules()` writes into `rules.lua`. The plugin never edits anything under
@@ -81,9 +91,9 @@ change, mid-drag included.
   `monitor.removed`, `monitor.layout_changed`) and `hl.timer` with
   `type = "oneshot"` are all valid in Hyprland 0.56.2, so the open question is
   whether handlers registered during parsing survive it.
-- `ControlWidget.qml:628` raises `ReferenceError: root is not defined` — the "+"
-  button on a monitor card does nothing. QML inline components (`component
-  MonitorCard`) cannot see ids declared outside the component.
+- The "+" button on a monitor card does nothing: its `onClicked` in `component
+  MonitorCard` (ControlWidget.qml) raises `ReferenceError: root is not defined`,
+  because QML inline components cannot see ids declared outside the component.
 
 ## Commits
 

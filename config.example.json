@@ -5,6 +5,10 @@
     "persistent": true,
     "debounceMs": 1200
   },
+  "appearance": {
+    "focusStyle": "color",
+    "focusMark": "●"
+  },
   "profiles": [
     {
       "id": "desk-laptop-closed",

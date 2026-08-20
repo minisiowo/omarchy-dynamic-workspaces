@@ -13,6 +13,12 @@ BarWidget {
     : null
   readonly property var items: displayItems()
   readonly property real trailingGap: root.vertical ? 0 : Style.spaceReal(1.5)
+  // How the focused workspace is marked, and with what. Kept in the plugin's
+  // config rather than in the widget's bar settings, so both bars agree and the
+  // choice is made in the same panel as everything else.
+  readonly property string focusStyle: root.service ? String(root.service.focusStyle) : "color"
+  readonly property string focusMark: root.service ? String(root.service.focusMark) : "\u25cf"
+  readonly property bool markPainted: root.focusStyle === "mark" || root.focusStyle === "replace"
 
   function liveWorkspaceById(id) {
     var values = Hyprland.workspaces.values
@@ -93,21 +99,40 @@ BarWidget {
           return live !== null && live.toplevels ? live.toplevels.values.length > 0 : false
         }
 
+        readonly property bool markVisible: chip.chipFocused && root.focusStyle === "mark"
+        readonly property bool pillVisible: chip.chipFocused && root.focusStyle === "pill"
+        // The color that says "this one". Held separately from the button's own
+        // `foreground`, which the pill has to invert.
+        readonly property color markColor: root.bar ? root.bar.barForeground : Color.foreground
+        // Small enough to clear the digit above it: the label is centered in a
+        // chip one bar tall, which leaves only a few pixels underneath.
+        readonly property int markSize: Math.max(1, Math.round(chip.fontSize * 0.4))
+        // Every chip reserves room for the mark, focused or not, so the bar does
+        // not reflow as the focus moves from one workspace to the next.
+        readonly property real slotWidth: root.markPainted
+          ? Math.max(labelMetrics.width, markMetrics.width)
+          : labelMetrics.width
+
         bar: root.bar
-        text: chip.modelData.label
+        text: chip.chipFocused && root.focusStyle === "replace"
+          ? root.focusMark
+          : chip.modelData.label
+        foreground: chip.pillVisible
+          ? (root.bar ? root.bar.themeContrastForeground : Color.background)
+          : chip.markColor
         labelVisible: !chip.isDivider
         tooltipText: chip.isDivider
           ? ""
           : "Workspace " + chip.modelData.id + " · " + chip.modelData.monitor
-        active: chip.chipFocused
-        // WidgetButton paints its active state with the bar's `active` role,
-        // which every theme sets to its own red — `shell.toml.tpl` hardcodes
-        // `active = "{{ red }}"` and documents it as the color for "modules
-        // calling attention to themselves (recording, voxtype, alerts,
-        // updates)". That is an alert role, and the workspace you are looking
-        // at is not an alert, so the focused chip came out red under every
-        // theme. The accent is the role that means "this one", and the panel
-        // already marks the same workspace with it.
+        // The accent marks the workspaces that hold windows; the workspace you
+        // are actually looking at keeps the bar's own foreground. That way round
+        // because there is only ever one focused workspace among several
+        // occupied ones, and plain white is what the eye finds first when
+        // scanning the bar — accent on the one and white on the many read
+        // backwards. (WidgetButton's default active role is `urgent`, which
+        // every theme sets to its red and `shell.toml.tpl` documents as the
+        // color for alerts. Neither of these states is an alert.)
+        active: chip.chipOccupied && !chip.chipFocused
         activeColor: Color.accent
         // The divider is chrome, so it sits at the same weight as an idle
         // workspace rather than competing with the live ones.
@@ -116,17 +141,60 @@ BarWidget {
         // Intrinsic width with a floor rather than a hard fixed width: plain
         // numbers keep the uniform slot they had, while a longer label —
         // "1: ", an emoji, a word — grows its own slot instead of painting
-        // over the neighbouring workspace.
+        // over the neighbouring workspace. Measured from the model rather than
+        // read off the painted label, because in `replace` the mark stands in
+        // for the number and the slot must not follow it.
         fixedWidth: root.vertical
           ? root.barSize
           : (chip.isDivider
             ? Math.max(Style.space(14), dividerGlyph.tightWidth + Style.spaceReal(10))
-            : Math.max(Style.space(20), chip.labelWidth + Style.spaceReal(12)))
+            : Math.max(Style.space(20), chip.slotWidth + Style.spaceReal(12)))
         fixedHeight: root.barSize
         // The divider is decoration, not a target: no tooltip, no pointer
         // cursor, no click.
         pressable: !chip.isDivider
         interactive: !chip.isDivider
+
+        TextMetrics {
+          id: labelMetrics
+          font.family: chip.fontFamily
+          font.pixelSize: chip.fontSize
+          text: chip.modelData.label
+        }
+
+        TextMetrics {
+          id: markMetrics
+          font.family: chip.fontFamily
+          font.pixelSize: root.focusStyle === "replace" ? chip.fontSize : chip.markSize
+          text: root.focusMark
+        }
+
+        // Behind the label, so the number reads out of the fill rather than
+        // over it. Rounded by half its height because Style.cornerRadius
+        // mirrors Hyprland's window rounding and is 0 on plenty of setups.
+        Rectangle {
+          z: -1
+          visible: chip.pillVisible
+          anchors.centerIn: parent
+          width: parent.width
+          height: Math.max(1, parent.height - Style.spaceReal(8))
+          radius: height / 2
+          color: chip.markColor
+        }
+
+        // Under the number, without moving it: shifting the label would make the
+        // focused workspace sit a line above its neighbours.
+        Text {
+          visible: chip.markVisible
+          anchors.horizontalCenter: parent.horizontalCenter
+          anchors.bottom: parent.bottom
+          anchors.bottomMargin: Style.spaceReal(3)
+          text: root.focusMark
+          color: chip.markColor
+          font.family: chip.fontFamily
+          font.pixelSize: chip.markSize
+          renderType: Text.NativeRendering
+        }
 
         DividerGlyph {
           id: dividerGlyph

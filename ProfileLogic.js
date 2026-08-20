@@ -54,6 +54,27 @@ function applySettings(value) {
   }
 }
 
+// How the bar marks the workspace you are looking at. This is the one display
+// setting that is not per profile: the divider depends on how a profile groups
+// monitors, but the focus mark is taste, and there is no reason for it to change
+// when you dock. `focusMark` is left uncapped on purpose — workspace labels and
+// the divider are free text too, and cutting a string at a fixed length would
+// split an emoji built from several UTF-16 units.
+function focusStyles() {
+  return ["color", "mark", "replace", "pill"]
+}
+
+function appearanceSettings(value) {
+  var appearance = asObject(asObject(value).appearance)
+  var style = String(appearance.focusStyle === undefined || appearance.focusStyle === null ? "" : appearance.focusStyle).trim().toLowerCase()
+  var mark = String(appearance.focusMark === undefined || appearance.focusMark === null ? "" : appearance.focusMark).trim()
+
+  return {
+    focusStyle: focusStyles().indexOf(style) === -1 ? "color" : style,
+    focusMark: mark === "" ? "\u25cf" : mark
+  }
+}
+
 function normalizedConfig(value) {
   var config = asObject(value)
   var profiles = asArray(config.profiles)
@@ -61,6 +82,9 @@ function normalizedConfig(value) {
   return {
     version: Number(config.version) || 1,
     apply: applySettings(config),
+    // Listed here or lost: this function rewrites the config down to the keys
+    // it names, so a section left out would be dropped on the next save.
+    appearance: appearanceSettings(config),
     profiles: profiles
   }
 }
@@ -71,6 +95,15 @@ function withApplySettings(config, changes) {
 
   for (var key in patch) next.apply[key] = patch[key]
   next.apply = applySettings(next)
+  return next
+}
+
+function withAppearance(config, changes) {
+  var next = copy(normalizedConfig(config))
+  var patch = asObject(changes)
+
+  for (var key in patch) next.appearance[key] = patch[key]
+  next.appearance = appearanceSettings(next)
   return next
 }
 

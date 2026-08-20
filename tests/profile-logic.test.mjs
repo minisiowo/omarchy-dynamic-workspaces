@@ -101,6 +101,27 @@ assert.equal(context.normalizedConfig(enabledConfig).apply.enabled, true)
 assert.equal(enabledConfig.profiles.length, config.profiles.length)
 assert.equal(context.applySettings(config).enabled, false, "the source config is not mutated")
 
+// ---------------------------------------------------------------- appearance
+
+const look = context.appearanceSettings({})
+assert.equal(look.focusStyle, "color", "the bar marks the focused workspace by color until told otherwise")
+assert.equal(look.focusMark, "\u25cf")
+assert.equal(context.appearanceSettings({ appearance: { focusStyle: "MARK" } }).focusStyle, "mark")
+assert.equal(context.appearanceSettings({ appearance: { focusStyle: "sparkles" } }).focusStyle, "color", "an unknown style falls back rather than painting nothing")
+assert.equal(context.appearanceSettings({ appearance: { focusMark: "  \u25aa  " } }).focusMark, "\u25aa")
+assert.equal(context.appearanceSettings({ appearance: { focusMark: "   " } }).focusMark, "\u25cf")
+assert.equal(context.appearanceSettings({ appearance: { focusMark: "\u{1f7e2}" } }).focusMark, "\u{1f7e2}", "a mark is never cut to length, so an emoji survives whole")
+
+// Same round trip as the apply block: normalizedConfig() rewrites the config
+// down to the keys it names, so a section it forgets is lost on the next save.
+const marked = context.withAppearance(config, { focusStyle: "pill" })
+assert.equal(marked.appearance.focusStyle, "pill")
+assert.equal(context.normalizedConfig(marked).appearance.focusStyle, "pill")
+assert.equal(marked.appearance.focusMark, "\u25cf", "changing one key keeps the other")
+assert.equal(marked.profiles.length, config.profiles.length)
+assert.equal(marked.apply.enabled, false)
+assert.equal(context.appearanceSettings(config).focusStyle, "color", "the source config is not mutated")
+
 // ------------------------------------------------------------ rule rendering
 
 assert.equal(context.luaString("plain"), '"plain"')
@@ -120,6 +141,16 @@ assert.match(rules, /monitor = "desc:Monitor B", workspaces = \{ 3 \}/)
 assert.match(rules, /hl\.on\("monitor\.added", schedule\)/)
 assert.match(rules, /hl\.timer\(/)
 assert.match(rules, /local fallback = \{/, "the default profile becomes the fallback")
+
+// Appearance is a bar concern and must leave the generated module byte for
+// byte identical. Service.writeRules() reloads Hyprland whenever the rendered
+// text differs, so a display key leaking in here would make picking a focus
+// mark reload the compositor.
+assert.equal(
+  context.renderRules(context.withAppearance(enabledConfig, { focusStyle: "pill", focusMark: "\u25aa" }), {}),
+  rules,
+  "changing how the bar looks must not touch what Hyprland is told"
+)
 
 // Descriptions are Lua string literals, so a comma or a quote in an EDID name
 // is an escaping problem rather than a syntax problem.
