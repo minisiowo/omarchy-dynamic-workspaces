@@ -56,6 +56,12 @@ The grouped workspace indicators are a second mode of the same plugin, so using 
 
    Add it, and the panel stops asking.
 
+`rules.lua` checks that it is really running inside Hyprland before it does anything. Some tools read
+`hyprland.lua` outside the compositor — `omarchy-menu-keybindings`, behind SUPER+K, is the one you press
+every day — by running it in a plain Lua interpreter with a stand-in for Hyprland's API. Asked to list the
+monitors, that stand-in answers forever, so a module that starts enumerating them there never stops. This one
+returns instead, and the menu opens as it always did.
+
 That line is the only change to your Hyprland configuration, and you make it yourself. The plugin writes two files of its own — `rules.lua` and `config.json`, both under `~/.config/omarchy/dynamic-workspaces/` — and touches nothing else. It never edits `monitors.lua`, `hyprland.lua`, your clamshell settings, or any Omarchy file.
 
 ## Everyday use

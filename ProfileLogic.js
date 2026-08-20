@@ -549,7 +549,11 @@ function rulesRuntime() {
     "-- rather than the order Hyprland happened to discover it in.",
     "local function ordered_monitors()",
     "  local monitors = {}",
-    "  for _, monitor in ipairs(hl.get_monitors()) do table.insert(monitors, monitor) end",
+    "  -- Counted rather than iterated with ipairs(): a placeholder table reports no",
+    "  -- length, so this reads as empty instead of never ending if the guard above is",
+    "  -- ever bypassed.",
+    "  local connected = hl.get_monitors()",
+    "  for index = 1, #connected do table.insert(monitors, connected[index]) end",
     "  table.sort(monitors, function(left, right)",
     "    if left.x ~= right.x then return left.x < right.x end",
     "    if left.y ~= right.y then return left.y < right.y end",
@@ -687,6 +691,21 @@ function renderRules(config, options) {
   lines.push("--")
   lines.push("-- Load it from ~/.config/hypr/hyprland.lua with:")
   lines.push("--   pcall(dofile, os.getenv(\"HOME\") .. \"/.config/omarchy/dynamic-workspaces/rules.lua\")")
+  lines.push("")
+  // Tools that want to know what a Hyprland config declares — omarchy-menu-keybindings
+  // is the one on every SUPER+K — read hyprland.lua with a plain lua interpreter and a
+  // placeholder `hl` whose every field answers with itself. Enumerating monitors against
+  // that placeholder never runs out of entries, so the scan turned into an unbounded loop
+  // that filled RAM and swap in seconds. Nothing below may touch the API before this
+  // check. It names only get_monitors: a missing workspace_rule raises, which the hook's
+  // pcall already contains, and spelling it here would also make Service.writeRules() read
+  // an inert stub as a module that claims rules.
+  lines.push("-- Read outside Hyprland — by omarchy-menu-keybindings, for one — `hl` is a")
+  lines.push("-- placeholder whose every field answers with itself, and enumerating monitors")
+  lines.push("-- against it never ends. Claim nothing until the real API is present.")
+  lines.push("if type(hl) ~= \"table\" or type(hl.get_monitors) ~= \"function\" then")
+  lines.push("  return")
+  lines.push("end")
   lines.push("")
   lines.push("local persistent = " + (settings.persistent ? "true" : "false"))
   lines.push("local debounce_ms = " + settings.debounceMs)

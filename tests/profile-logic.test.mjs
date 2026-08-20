@@ -1,6 +1,9 @@
 import assert from "node:assert/strict"
 import fs from "node:fs"
+import os from "node:os"
+import path from "node:path"
 import vm from "node:vm"
+import { spawnSync } from "node:child_process"
 
 const source = fs
   .readFileSync(new URL("../ProfileLogic.js", import.meta.url), "utf8")
@@ -392,3 +395,70 @@ const twinExact = {
 assert.deepEqual(allocation(twinExact, twins), [[1, 2], [1, 2]])
 
 console.log("shared descriptions: ok")
+
+// ---------------------------------------------------------------------------
+// Read outside Hyprland
+//
+// omarchy-menu-keybindings — SUPER+K — lists your keybindings by running
+// ~/.config/hypr/hyprland.lua in a plain lua interpreter with a placeholder
+// `hl` whose every field answers with itself. The hook dofile()s this module
+// from there, so the module used to enumerate monitors against a table that
+// never runs out of entries: an unbounded loop that filled tens of gigabytes
+// of RAM and swap within seconds of pressing the key.
+
+const guardedRules = context.renderRules(enabledConfig, {})
+assert.match(guardedRules, /if type\(hl\) ~= "table" or type\(hl\.get_monitors\) ~= "function" then/)
+assert.ok(
+  guardedRules.indexOf("if type(hl)") < guardedRules.indexOf("hl.get_monitors()"),
+  "nothing may touch the API before the guard has cleared it"
+)
+assert.match(
+  context.renderRules(config, {}),
+  /if type\(hl\) ~= "table"/,
+  "an inert module is read by the same tools, so it is guarded too"
+)
+
+// The guard must not name hl.workspace_rule: Service.writeRules() reads that
+// string to tell a module that claims rules from one that claims nothing, and
+// would reload Hyprland for an inert stub.
+assert.equal(context.renderRules(config, {}).includes("hl.workspace_rule"), false)
+
+// And the loop itself reads a placeholder as empty rather than endless, so the
+// guard is not the only thing standing between a scan and a runaway.
+assert.match(guardedRules, /for index = 1, #connected do/)
+
+// The real thing: run the generated module under that exact placeholder, with
+// an address-space cap so a regression fails as a crash instead of taking the
+// machine down with it. Skipped where lua is not installed.
+const lua = spawnSync("sh", ["-c", "command -v lua"], { encoding: "utf8" })
+
+if (lua.status !== 0) {
+  console.log("placeholder hl: skipped (no lua interpreter)")
+} else {
+  const modulePath = path.join(os.tmpdir(), "dynamic-workspaces-rules-" + process.pid + ".lua")
+  fs.writeFileSync(modulePath, guardedRules)
+
+  try {
+    const scan = spawnSync("sh", ["-c",
+      // 512 MB of address space: the unguarded loop reached a gigabyte in
+      // about four seconds, so it cannot pass this by being slow.
+      "ulimit -v 524288; exec timeout 10 lua -e '"
+        + 'local noop; noop = setmetatable({}, { __index = function() return noop end, __call = function() return noop end }); '
+        + 'hl = setmetatable({}, { __index = function() return noop end }); '
+        + 'local ok, err = pcall(dofile, os.getenv("RULES_PATH")); '
+        + 'if not ok then io.stderr:write(tostring(err)); os.exit(1) end'
+        + "'"
+    ], { encoding: "utf8", env: Object.assign({}, process.env, { RULES_PATH: modulePath }) })
+
+    assert.equal(
+      scan.status,
+      0,
+      "the module must return immediately under a placeholder hl: " + (scan.stderr || "timed out or ran out of memory")
+    )
+    console.log("placeholder hl: ok")
+  } finally {
+    fs.rmSync(modulePath, { force: true })
+  }
+}
+
+console.log("guarded module: ok")
