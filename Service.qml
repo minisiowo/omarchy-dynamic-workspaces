@@ -54,10 +54,10 @@ Item {
 
   readonly property var applySettings: ProfileLogic.applySettings(config)
   readonly property bool applyEnabled: applySettings.enabled
-  // How the bar marks the focused workspace. Read straight off the config so a
-  // change reaches every bar on every screen the moment it is saved.
+  // The character the bar paints in place of the focused workspace's number,
+  // empty for none. Read straight off the config so a change reaches every bar
+  // on every screen the moment it is saved.
   readonly property var appearance: ProfileLogic.appearanceSettings(config)
-  readonly property string focusStyle: appearance.focusStyle
   readonly property string focusMark: appearance.focusMark
   readonly property string renderedRules: ProfileLogic.renderRules(config, { configPath: configPath })
   readonly property var monitorDescriptions: ProfileLogic.monitorDescriptions(activeMonitors)
@@ -86,7 +86,7 @@ Item {
     return {
       version: 1,
       apply: { enabled: false, persistent: true, debounceMs: 1200 },
-      appearance: { focusStyle: "color", focusMark: "\u25cf" },
+      appearance: { focusMark: "" },
       profiles: [{
         id: "default",
         name: "Default",
@@ -175,13 +175,10 @@ Item {
     applyConfig(ProfileLogic.setDivider(root.config, root.activeProfileId, divider))
   }
 
-  // Appearance is not part of any profile, so these go through root.config
+  // Appearance is not part of any profile, so this goes through root.config
   // rather than editableConfig() — there is nothing about the layout to write
-  // down first.
-  function setFocusStyle(style) {
-    applyConfig(ProfileLogic.withAppearance(root.config, { focusStyle: style }))
-  }
-
+  // down first. Clearing the mark is how it is turned off, so an empty string
+  // is a valid value rather than a no-op.
   function setFocusMark(mark) {
     applyConfig(ProfileLogic.withAppearance(root.config, { focusMark: mark }))
   }
@@ -513,14 +510,9 @@ Item {
       return "ok"
     }
 
-    function setFocusStyle(style: string): string {
-      root.setFocusStyle(style)
-      return root.focusStyle
-    }
-
     function setFocusMark(mark: string): string {
       root.setFocusMark(mark)
-      return root.focusMark
+      return root.focusMark === "" ? "(none)" : root.focusMark
     }
   }
 

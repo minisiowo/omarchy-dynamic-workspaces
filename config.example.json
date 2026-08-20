@@ -6,8 +6,7 @@
     "debounceMs": 1200
   },
   "appearance": {
-    "focusStyle": "color",
-    "focusMark": "●"
+    "focusMark": ""
   },
   "profiles": [
     {

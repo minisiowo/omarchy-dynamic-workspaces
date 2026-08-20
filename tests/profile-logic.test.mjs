@@ -103,24 +103,25 @@ assert.equal(context.applySettings(config).enabled, false, "the source config is
 
 // ---------------------------------------------------------------- appearance
 
-const look = context.appearanceSettings({})
-assert.equal(look.focusStyle, "color", "the bar marks the focused workspace by color until told otherwise")
-assert.equal(look.focusMark, "\u25cf")
-assert.equal(context.appearanceSettings({ appearance: { focusStyle: "REPLACE" } }).focusStyle, "replace")
-assert.equal(context.appearanceSettings({ appearance: { focusStyle: "sparkles" } }).focusStyle, "color", "an unknown style falls back rather than painting nothing")
+assert.equal(context.appearanceSettings({}).focusMark, "", "the bar keeps the number until a character is given")
 assert.equal(context.appearanceSettings({ appearance: { focusMark: "  \u25aa  " } }).focusMark, "\u25aa")
-assert.equal(context.appearanceSettings({ appearance: { focusMark: "   " } }).focusMark, "\u25cf")
+assert.equal(context.appearanceSettings({ appearance: { focusMark: "   " } }).focusMark, "", "whitespace is not a mark")
 assert.equal(context.appearanceSettings({ appearance: { focusMark: "\u{1f7e2}" } }).focusMark, "\u{1f7e2}", "a mark is never cut to length, so an emoji survives whole")
+
+// Configs from when this was a set of named styles stored a mark even while it
+// was switched off. Reading one must not turn it on.
+assert.equal(context.appearanceSettings({ appearance: { focusStyle: "color", focusMark: "\u25cf" } }).focusMark, "")
+assert.equal(context.appearanceSettings({ appearance: { focusStyle: "replace", focusMark: "\u25cf" } }).focusMark, "\u25cf")
 
 // Same round trip as the apply block: normalizedConfig() rewrites the config
 // down to the keys it names, so a section it forgets is lost on the next save.
-const marked = context.withAppearance(config, { focusStyle: "replace" })
-assert.equal(marked.appearance.focusStyle, "replace")
-assert.equal(context.normalizedConfig(marked).appearance.focusStyle, "replace")
-assert.equal(marked.appearance.focusMark, "\u25cf", "changing one key keeps the other")
+const marked = context.withAppearance(config, { focusMark: "\u25cf" })
+assert.equal(marked.appearance.focusMark, "\u25cf")
+assert.equal(context.normalizedConfig(marked).appearance.focusMark, "\u25cf")
+assert.equal(context.withAppearance(marked, { focusMark: "" }).appearance.focusMark, "", "clearing the field is how it is turned off")
 assert.equal(marked.profiles.length, config.profiles.length)
 assert.equal(marked.apply.enabled, false)
-assert.equal(context.appearanceSettings(config).focusStyle, "color", "the source config is not mutated")
+assert.equal(context.appearanceSettings(config).focusMark, "", "the source config is not mutated")
 
 // ------------------------------------------------------------ rule rendering
 
@@ -147,7 +148,7 @@ assert.match(rules, /local fallback = \{/, "the default profile becomes the fall
 // text differs, so a display key leaking in here would make picking a focus
 // mark reload the compositor.
 assert.equal(
-  context.renderRules(context.withAppearance(enabledConfig, { focusStyle: "replace", focusMark: "\u25aa" }), {}),
+  context.renderRules(context.withAppearance(enabledConfig, { focusMark: "\u25aa" }), {}),
   rules,
   "changing how the bar looks must not touch what Hyprland is told"
 )

@@ -67,10 +67,10 @@ to the keys it names, so a section it does not list is silently dropped the next
 time anything is saved. Adding a settings block means adding it there, next to
 `applySettings()` and `appearanceSettings()`, not only where it is read.
 
-**Display settings must not reach `renderRules()`.** The `appearance` block picks
-how the bar marks the focused workspace; if any of it leaked into the rendered
-Lua, changing that mark would reload Hyprland. A test asserts the rendered text
-is unchanged by it.
+**Display settings must not reach `renderRules()`.** The `appearance` block holds
+the character the bar paints on the focused workspace; if any of it leaked into
+the rendered Lua, changing that character would reload Hyprland. A test asserts
+the rendered text is unchanged by it.
 
 **The hook line lives in three places** and they have to agree: `Service.hookLine`,
 `Service.parseHyprlandConfig()` which detects it, and the header comment

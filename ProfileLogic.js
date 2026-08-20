@@ -54,27 +54,26 @@ function applySettings(value) {
   }
 }
 
-// How the bar marks the workspace you are looking at: `color` leaves the number
-// alone and lets the color say it, `replace` puts `focusMark` in place of the
-// number. This is the one display setting that is not per profile — the divider
-// depends on how a profile groups monitors, but the focus mark is taste, and
-// there is no reason for it to change when you dock. `focusMark` is left
-// uncapped on purpose: workspace labels and the divider are free text too, and
-// cutting a string at a fixed length would split an emoji built from several
-// UTF-16 units.
-function focusStyles() {
-  return ["color", "replace"]
-}
-
+// How the bar marks the workspace you are looking at. There is one setting and
+// the character is its own switch: give it something and the focused workspace
+// shows that instead of its number, leave it empty and the number stays and the
+// color alone says which one it is. Not per profile — the divider depends on how
+// a profile groups monitors, but this is taste, and there is no reason for it to
+// change when you dock. Left uncapped on purpose: workspace labels and the
+// divider are free text too, and cutting a string at a fixed length would split
+// an emoji built from several UTF-16 units.
 function appearanceSettings(value) {
   var appearance = asObject(asObject(value).appearance)
-  var style = String(appearance.focusStyle === undefined || appearance.focusStyle === null ? "" : appearance.focusStyle).trim().toLowerCase()
   var mark = String(appearance.focusMark === undefined || appearance.focusMark === null ? "" : appearance.focusMark).trim()
 
-  return {
-    focusStyle: focusStyles().indexOf(style) === -1 ? "color" : style,
-    focusMark: mark === "" ? "\u25cf" : mark
-  }
+  // Configs written while this was a set of named styles carry a `focusStyle`.
+  // Only `replace` ever painted the character, so anything else means the mark
+  // was stored but switched off, and turning it on now would change how someone's
+  // bar looks behind their back.
+  var legacy = appearance.focusStyle
+  if (legacy !== undefined && legacy !== null && String(legacy).trim().toLowerCase() !== "replace") mark = ""
+
+  return { focusMark: mark }
 }
 
 function normalizedConfig(value) {

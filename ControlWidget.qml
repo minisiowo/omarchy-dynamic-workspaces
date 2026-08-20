@@ -498,42 +498,23 @@ BarWidget {
             width: parent.width
             spacing: Style.spacing.labelGap
 
-            // Not per profile, unlike the divider above: which screens are
-            // plugged in says nothing about how you like the focused workspace
-            // marked.
-            readonly property string focusStyle: root.service ? String(root.service.focusStyle) : "color"
-
             PanelSectionHeader {
               text: "ACTIVE WORKSPACE"
               foreground: root.panelForeground
               fontFamily: root.panelFont
             }
 
-            ButtonGroup {
-              options: ["Color", "Replace"]
-              value: focusSection.focusStyle.charAt(0).toUpperCase() + focusSection.focusStyle.slice(1)
-              foreground: root.panelForeground
-              background: root.bar ? root.bar.background : Color.background
-              accent: Color.accent
-              fontFamily: root.panelFont
-              onChanged: function(style) {
-                if (root.service) root.service.setFocusStyle(style)
-              }
-            }
-
             RowLayout {
               width: parent.width
               spacing: Style.spacing.controlGap
 
+              // The character is its own switch: there is nothing to turn on,
+              // you either give it one or leave the field empty.
               TextField {
                 id: focusMarkEditor
                 Layout.preferredWidth: Style.space(90)
                 Layout.alignment: Qt.AlignVCenter
-                // Only Replace paints it; Color keeps whatever is stored so
-                // switching back does not lose the character.
-                enabled: focusSection.focusStyle === "replace"
-                opacity: enabled ? 1.0 : 0.45
-                text: root.service ? String(root.service.focusMark) : "\u25cf"
+                text: root.service ? String(root.service.focusMark) : ""
                 placeholderText: "\u25cf"
                 horizontalAlignment: Text.AlignHCenter
                 foreground: root.panelForeground
@@ -546,7 +527,6 @@ BarWidget {
                 Layout.alignment: Qt.AlignVCenter
                 text: "Save"
                 bordered: true
-                enabled: focusMarkEditor.enabled
                 foreground: root.panelForeground
                 fontFamily: root.panelFont
                 onClicked: if (root.service) root.service.setFocusMark(focusMarkEditor.text)
@@ -557,7 +537,7 @@ BarWidget {
 
             Text {
               width: parent.width
-              text: "On the bar, the workspace you are looking at is drawn in the bar's own color and the ones holding windows in the accent. Replace puts a character of your own in place of its number — any text, emoji, or Nerd Font glyph."
+              text: "The workspace you are looking at is drawn in the bar's own color, the ones holding windows in the accent. Put a character here — text, emoji, or Nerd Font glyph — and the focused workspace shows it in place of its number. Empty keeps the number."
               color: root.panelDim
               wrapMode: Text.WordWrap
               font.family: root.panelFont

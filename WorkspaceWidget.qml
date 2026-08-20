@@ -13,11 +13,10 @@ BarWidget {
     : null
   readonly property var items: displayItems()
   readonly property real trailingGap: root.vertical ? 0 : Style.spaceReal(1.5)
-  // How the focused workspace is marked, and with what. Kept in the plugin's
-  // config rather than in the widget's bar settings, so both bars agree and the
-  // choice is made in the same panel as everything else.
-  readonly property string focusStyle: root.service ? String(root.service.focusStyle) : "color"
-  readonly property string focusMark: root.service ? String(root.service.focusMark) : "\u25cf"
+  // The character shown in place of the focused workspace's number, empty for
+  // none. Kept in the plugin's config rather than in the widget's bar settings,
+  // so both bars agree and it is set in the same panel as everything else.
+  readonly property string focusMark: root.service ? String(root.service.focusMark) : ""
 
   function liveWorkspaceById(id) {
     var values = Hyprland.workspaces.values
@@ -100,12 +99,12 @@ BarWidget {
 
         // Every chip reserves room for the mark, focused or not, so the bar does
         // not reflow as the focus moves from one workspace to the next.
-        readonly property real slotWidth: root.focusStyle === "replace"
-          ? Math.max(labelMetrics.width, markMetrics.width)
-          : labelMetrics.width
+        readonly property real slotWidth: root.focusMark === ""
+          ? labelMetrics.width
+          : Math.max(labelMetrics.width, markMetrics.width)
 
         bar: root.bar
-        text: chip.chipFocused && root.focusStyle === "replace"
+        text: chip.chipFocused && root.focusMark !== ""
           ? root.focusMark
           : chip.modelData.label
         labelVisible: !chip.isDivider
@@ -130,8 +129,8 @@ BarWidget {
         // numbers keep the uniform slot they had, while a longer label —
         // "1: ", an emoji, a word — grows its own slot instead of painting
         // over the neighbouring workspace. Measured from the model rather than
-        // read off the painted label, because in `replace` the mark stands in
-        // for the number and the slot must not follow it.
+        // read off the painted label, because the mark stands in for the number
+        // on whichever workspace has the focus and the slot must not follow it.
         fixedWidth: root.vertical
           ? root.barSize
           : (chip.isDivider
