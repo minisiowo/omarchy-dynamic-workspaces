@@ -765,6 +765,18 @@ BarWidget {
     // and Hyprland's `desc:` selector are both keyed by it, so the two cannot
     // be given different workspaces.
     readonly property bool shared: card.group.shared === true
+    // A renamed workspace prints its number under its chip. The whole row
+    // reserves that line, not just the renamed chips, or the squares would end
+    // up at different heights and stop lining up.
+    readonly property bool anyRenamed: {
+      var workspaces = card.group.workspaces
+      for (var i = 0; i < workspaces.length; i++) {
+        if (String(workspaces[i].label) !== String(workspaces[i].id)) return true
+      }
+      return false
+    }
+    readonly property int chipSize: Style.space(30)
+    readonly property int captionHeight: card.anyRenamed ? Style.space(12) : 0
 
     implicitHeight: cardContent.implicitHeight + Style.space(12) * 2
     color: Qt.rgba(root.panelForeground.r, root.panelForeground.g, root.panelForeground.b, 0.05)
@@ -906,9 +918,9 @@ BarWidget {
               && chipCell.index === card.workspaceCount - 1
 
             Layout.preferredWidth: Math.max(
-              Style.space(30),
+              card.chipSize,
               Math.max(chipLabel.implicitWidth, chipNumber.visible ? chipNumber.implicitWidth : 0) + Style.space(18))
-            Layout.preferredHeight: Style.space(30)
+            Layout.preferredHeight: card.chipSize + card.captionHeight
             Layout.alignment: Qt.AlignVCenter
             z: chipDrag.drag.active ? 100 : 1
 
@@ -917,7 +929,7 @@ BarWidget {
             Rectangle {
               visible: chipCell.markBefore
               width: Style.space(2)
-              height: parent.height
+              height: card.chipSize
               x: -Style.space(4)
               radius: width / 2
               color: Color.accent
@@ -926,7 +938,7 @@ BarWidget {
             Rectangle {
               visible: chipCell.markAfter
               width: Style.space(2)
-              height: parent.height
+              height: card.chipSize
               x: parent.width + Style.space(2)
               radius: width / 2
               color: Color.accent
@@ -951,7 +963,10 @@ BarWidget {
               property int workspaceId: chipCell.workspaceId
 
               width: chipCell.width
-              height: chipCell.height
+              // The square keeps its own size; the cell may be taller to leave
+              // room for the number underneath. No anchors — dragging moves this
+              // by x/y, and an anchored item cannot be dragged.
+              height: card.chipSize
               radius: Style.cornerRadius
               color: chipCell.focused
                 ? Style.selectedFillFor(root.panelForeground, Color.accent)
@@ -967,29 +982,28 @@ BarWidget {
 
               Behavior on color { ColorAnimation { duration: 120 } }
 
-              Column {
+              Text {
+                id: chipLabel
                 anchors.centerIn: parent
-                spacing: 0
+                text: String(chipCell.modelData.label)
+                color: root.panelForeground
+                font.bold: chipCell.focused
+                font.family: root.panelFont
+                font.pixelSize: Style.font.body
+              }
 
-                Text {
-                  id: chipLabel
-                  anchors.horizontalCenter: parent.horizontalCenter
-                  text: String(chipCell.modelData.label)
-                  color: root.panelForeground
-                  font.bold: chipCell.focused
-                  font.family: root.panelFont
-                  font.pixelSize: Style.font.body
-                }
-
-                Text {
-                  id: chipNumber
-                  anchors.horizontalCenter: parent.horizontalCenter
-                  visible: chipCell.renamed
-                  text: String(chipCell.workspaceId)
-                  color: root.panelDim
-                  font.family: root.panelFont
-                  font.pixelSize: Style.font.caption
-                }
+              // Below the square rather than inside it: two lines never fit a
+              // 30px chip without crowding each other. A child of the chip, so
+              // it travels along when the chip is dragged.
+              Text {
+                id: chipNumber
+                visible: chipCell.renamed
+                x: (parent.width - width) / 2
+                y: parent.height + Style.space(2)
+                text: String(chipCell.workspaceId)
+                color: root.panelDim
+                font.family: root.panelFont
+                font.pixelSize: Style.font.caption
               }
 
               HoverHandler { id: chipHover }
@@ -1022,7 +1036,8 @@ BarWidget {
         Item {
           id: chipTail
           Layout.fillWidth: true
-          Layout.preferredHeight: Style.space(30)
+          Layout.preferredHeight: card.chipSize
+          Layout.alignment: Qt.AlignTop
           Layout.minimumWidth: Style.space(40)
 
           Rectangle {
