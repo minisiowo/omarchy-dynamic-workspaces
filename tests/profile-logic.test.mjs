@@ -101,6 +101,14 @@ assert.equal(context.normalizedConfig(enabledConfig).apply.enabled, true)
 assert.equal(enabledConfig.profiles.length, config.profiles.length)
 assert.equal(context.applySettings(config).enabled, false, "the source config is not mutated")
 
+// A removed workspace takes its name with it: a label left behind is invisible
+// until that id comes back, and then it wears a name meant for another layout.
+const named = context.setWorkspaceLabel(config, "desk", 3, "chat")
+assert.equal(named.profiles[0].labels["3"], "chat")
+const dropped = context.removeWorkspace(named, "desk", 3)
+assert.equal(dropped.profiles[0].labels["3"], undefined)
+assert.equal(dropped.profiles[0].labels["1"], "💻", "the other names are left alone")
+
 // ---------------------------------------------------------------- appearance
 
 assert.equal(context.appearanceSettings({}).focusMark, "", "the bar keeps the number until a character is given")

@@ -100,6 +100,21 @@ BarWidget {
     field.insert(field.cursorPosition, value)
   }
 
+  // Whether the selected workspace carries a name of its own. Read from the
+  // service's groups rather than tracked alongside selectedWorkspaceId, so it
+  // follows a label that was just saved without a second place to keep in sync.
+  function workspaceRenamed(id) {
+    if (!root.service || id <= 0) return false
+    var groups = root.service.groups
+    for (var g = 0; g < groups.length; g++) {
+      var workspaces = groups[g].workspaces
+      for (var w = 0; w < workspaces.length; w++) {
+        if (Number(workspaces[w].id) === id) return String(workspaces[w].label) !== String(id)
+      }
+    }
+    return false
+  }
+
   function workspaceOccupied(id) {
     var values = Hyprland.workspaces.values
     for (var i = 0; i < values.length; i++) {
@@ -461,6 +476,20 @@ BarWidget {
 
               PanelActionButton {
                 Layout.alignment: Qt.AlignVCenter
+                visible: root.workspaceRenamed(root.selectedWorkspaceId)
+                iconText: "󰕌"
+                tooltipText: "Back to the workspace number"
+                foreground: root.panelForeground
+                hoverColor: Color.accent
+                fontFamily: root.panelFont
+                onClicked: {
+                  if (root.service) root.service.setWorkspaceLabel(root.selectedWorkspaceId, "")
+                  labelEditor.text = String(root.selectedWorkspaceId)
+                }
+              }
+
+              PanelActionButton {
+                Layout.alignment: Qt.AlignVCenter
                 iconText: "󰆴"
                 tooltipText: "Remove from this profile"
                 foreground: root.panelForeground
@@ -472,6 +501,20 @@ BarWidget {
                   labelEditor.text = ""
                 }
               }
+            }
+
+            Text {
+              width: parent.width
+              // The lesson of a workspace named "4" that nothing on the keyboard
+              // reaches: the name is decoration, the number is the address.
+              text: "Keyboard shortcuts follow the workspace number, not the name shown here."
+                + (root.selectedWorkspaceId === 10
+                  ? " Omarchy binds workspace 10 to SUPER + 0."
+                  : "")
+              color: root.panelDim
+              wrapMode: Text.WordWrap
+              font.family: root.panelFont
+              font.pixelSize: Style.font.caption
             }
           }
 
@@ -843,6 +886,10 @@ BarWidget {
             required property int index
 
             readonly property int workspaceId: Number(chipCell.modelData.id)
+            // A name of its own hides which workspace this actually is, and the
+            // number is the part that matters outside this panel: the keyboard
+            // shortcuts follow it, not the name. So a renamed chip carries both.
+            readonly property bool renamed: String(chipCell.modelData.label) !== String(chipCell.workspaceId)
             readonly property bool selected: root.selectedWorkspaceId === chipCell.workspaceId
             // Live compositor state, read here rather than carried in the
             // service's model: folding it into the model would rebuild every
@@ -858,7 +905,9 @@ BarWidget {
               && root.dropIndex === card.workspaceCount
               && chipCell.index === card.workspaceCount - 1
 
-            Layout.preferredWidth: Math.max(Style.space(30), chipLabel.implicitWidth + Style.space(18))
+            Layout.preferredWidth: Math.max(
+              Style.space(30),
+              Math.max(chipLabel.implicitWidth, chipNumber.visible ? chipNumber.implicitWidth : 0) + Style.space(18))
             Layout.preferredHeight: Style.space(30)
             Layout.alignment: Qt.AlignVCenter
             z: chipDrag.drag.active ? 100 : 1
@@ -918,14 +967,37 @@ BarWidget {
 
               Behavior on color { ColorAnimation { duration: 120 } }
 
-              Text {
-                id: chipLabel
+              Column {
                 anchors.centerIn: parent
-                text: String(chipCell.modelData.label)
-                color: root.panelForeground
-                font.bold: chipCell.focused
-                font.family: root.panelFont
-                font.pixelSize: Style.font.body
+                spacing: 0
+
+                Text {
+                  id: chipLabel
+                  anchors.horizontalCenter: parent.horizontalCenter
+                  text: String(chipCell.modelData.label)
+                  color: root.panelForeground
+                  font.bold: chipCell.focused
+                  font.family: root.panelFont
+                  font.pixelSize: Style.font.body
+                }
+
+                Text {
+                  id: chipNumber
+                  anchors.horizontalCenter: parent.horizontalCenter
+                  visible: chipCell.renamed
+                  text: String(chipCell.workspaceId)
+                  color: root.panelDim
+                  font.family: root.panelFont
+                  font.pixelSize: Style.font.caption
+                }
+              }
+
+              HoverHandler { id: chipHover }
+
+              PanelToolTip {
+                visible: chipHover.hovered && chipCell.renamed
+                text: "Workspace " + chipCell.workspaceId + " \u2014 shown as \"" + chipCell.modelData.label + "\""
+                fontFamily: root.panelFont
               }
 
               MouseArea {

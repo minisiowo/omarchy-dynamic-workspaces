@@ -97,9 +97,12 @@ change, mid-drag included.
   `monitor.removed`, `monitor.layout_changed`) and `hl.timer` with
   `type = "oneshot"` are all valid in Hyprland 0.56.2, so the open question is
   whether handlers registered during parsing survive it.
-- The "+" button on a monitor card does nothing: its `onClicked` in `component
-  MonitorCard` (ControlWidget.qml) raises `ReferenceError: root is not defined`,
-  because QML inline components cannot see ids declared outside the component.
+(An earlier entry claimed the "+" button on a monitor card raises
+`ReferenceError: root is not defined` because inline components cannot see ids
+declared outside them. It does not, in this Qt: bindings inside `component
+MonitorCard` read `root.panelForeground` and `root.panelDim` and paint correctly,
+and adding a workspace through that button works. Removed rather than left to
+send the next session chasing it.)
 
 ## Commits
 

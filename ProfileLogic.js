@@ -377,6 +377,15 @@ function removeWorkspace(config, profileId, workspaceId) {
   if (index < 0) return next
 
   next.profiles[index].assignments = withoutWorkspace(next.profiles[index].assignments, workspaceId)
+
+  // The name goes with it. Left behind, it is invisible dead weight that comes
+  // back to life if that id is ever added again — and a workspace wearing a
+  // name you gave it months ago, for a different layout, is exactly the kind of
+  // surprise this panel is meant to prevent.
+  var labels = copy(asObject(next.profiles[index].labels))
+  delete labels[String(Number(workspaceId))]
+  next.profiles[index].labels = labels
+
   return next
 }
 

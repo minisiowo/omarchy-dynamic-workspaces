@@ -19,7 +19,7 @@ Close the lid and the bar goes back to the first row. Open it and you get the se
 
 ## What you get
 
-An icon on the Omarchy bar opens a small panel showing every screen you have connected, with its workspaces as chips underneath. Drag a chip from one screen to another to decide where that workspace belongs. Give it a name, an emoji, or an icon if a number is not enough.
+An icon on the Omarchy bar opens a small panel showing every screen you have connected, with its workspaces as chips underneath. Drag a chip from one screen to another to decide where that workspace belongs. Give it a name, an emoji, or an icon if a number is not enough — a renamed chip keeps showing its workspace number underneath, because that number is what your keyboard shortcuts follow.
 
 Once a layout looks right, save it. From then on, whenever exactly those screens are connected, that layout comes back — when you dock, when you undock, when you wake the machine up.
 
