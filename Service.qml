@@ -454,7 +454,7 @@ Item {
   }
 
   IpcHandler {
-    target: "minisiowo.dynamic-workspaces.service"
+    target: "io.github.minisiowo.dynamic-workspaces.service"
 
     function status(): string {
       return JSON.stringify({

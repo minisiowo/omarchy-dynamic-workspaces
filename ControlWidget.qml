@@ -9,7 +9,7 @@ import qs.Ui
 
 BarWidget {
   id: root
-  moduleName: "minisiowo.dynamic-workspaces"
+  moduleName: "io.github.minisiowo.dynamic-workspaces"
 
   property bool popupOpen: false
   property int selectedWorkspaceId: 0

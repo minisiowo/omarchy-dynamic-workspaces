@@ -6,7 +6,7 @@ import qs.Ui
 
 BarWidget {
   id: root
-  moduleName: "minisiowo.dynamic-workspaces"
+  moduleName: "io.github.minisiowo.dynamic-workspaces"
 
   readonly property var service: bar && bar.shell
     ? bar.shell.serviceFor(root.moduleName)

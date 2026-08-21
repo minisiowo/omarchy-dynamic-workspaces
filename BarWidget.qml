@@ -3,7 +3,7 @@ import qs.Ui
 
 BarWidget {
   id: root
-  moduleName: "minisiowo.dynamic-workspaces"
+  moduleName: "io.github.minisiowo.dynamic-workspaces"
 
   readonly property string widgetMode: String(setting("mode", "Control")).toLowerCase()
   readonly property bool opened: widgetLoader.item && widgetLoader.item.opened === true

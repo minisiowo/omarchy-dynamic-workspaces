@@ -25,15 +25,15 @@ It asserts as it goes and prints a line per section; a failure is an uncaught
 Live state without opening the panel:
 
 ```bash
-qs ipc call minisiowo.dynamic-workspaces.service status   # active profile, monitors, groups
-qs ipc call minisiowo.dynamic-workspaces.service preview  # the rules as they would be written
+qs ipc call io.github.minisiowo.dynamic-workspaces.service status   # active profile, monitors, groups
+qs ipc call io.github.minisiowo.dynamic-workspaces.service preview  # the rules as they would be written
 qs log -t 100 /run/user/1000/quickshell/by-id/*/log.qslog # add -r '*=true' for everything
 hyprctl -j workspacerules                                 # what Hyprland actually ended up with
 ```
 
 ## The plugin directory is a symlink, so hot reload does not fire
 
-`~/.config/omarchy/plugins/minisiowo.dynamic-workspaces` points at this repo.
+`~/.config/omarchy/plugins/io.github.minisiowo.dynamic-workspaces` points at this repo.
 Omarchy watches that directory with `inotifywait -r`, which does not descend
 into symlinks, so **editing files here produces no "Local plugin changed"
 reload**. `qs ipc call shell rescanPlugins` is not enough either: it calls

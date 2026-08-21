@@ -33,6 +33,8 @@ Nothing reaches Hyprland until you switch it on — until then the panel is a pr
 
 Omarchy with its Quickshell bar, and Hyprland configured in **Lua** (`~/.config/hypr/hyprland.lua`). Applying a layout depends on that: the plugin writes a small Lua file for Hyprland to read. On the older `hyprland.conf` setup the panel still works as a preview, but nothing can be applied.
 
+Beyond that it needs nothing you do not already have: it runs `hyprctl` to reload the compositor, and `wl-paste` so the panel's text fields can be pasted into. Both ship with Omarchy.
+
 ## Install
 
 ```bash
@@ -77,7 +79,7 @@ On the bar, the workspace you are looking at is drawn in the bar's own color, an
 The panel also holds the **divider** shown between monitor groups on the bar — it appears only while two or more of your screens have workspaces, since that is the only time anything is drawn between them. The bar icon itself is any text, emoji, or Nerd Font glyph you like:
 
 ```bash
-omarchy bar set minisiowo.dynamic-workspaces icon "🗂️"
+omarchy bar set io.github.minisiowo.dynamic-workspaces icon "🗂️"
 ```
 
 ## Turning it off
@@ -87,10 +89,18 @@ Switch **Apply** off in the panel. Hyprland goes back to whatever workspace rule
 One thing to know: because the rules live in your Hyprland configuration rather than in the shell's memory, disabling or removing the plugin does **not** stop them on its own — Hyprland keeps reading `rules.lua` for as long as that one line is there. So switch Apply off first, or remove the line:
 
 ```bash
-omarchy plugin disable minisiowo.dynamic-workspaces
+omarchy plugin disable io.github.minisiowo.dynamic-workspaces
 # remove the pcall(dofile, ...) line from ~/.config/hypr/hyprland.lua
 hyprctl reload
 ```
+
+To uninstall it altogether:
+
+```bash
+omarchy plugin remove io.github.minisiowo.dynamic-workspaces
+```
+
+That leaves `~/.config/omarchy/dynamic-workspaces/` where it is, so your profiles are still there if you come back. Delete the directory to be rid of them.
 
 To put Omarchy's built-in workspace widget back:
 
@@ -168,13 +178,13 @@ How the bar marks the focused workspace sits beside it, outside the profiles, be
 Two commands are worth knowing. To see exactly what would be handed to Hyprland, without applying anything:
 
 ```bash
-qs -p /usr/share/omarchy/shell/shell.qml ipc call minisiowo.dynamic-workspaces.service preview
+qs -p /usr/share/omarchy/shell/shell.qml ipc call io.github.minisiowo.dynamic-workspaces.service preview
 ```
 
 And to open or close the panel — useful on a Hyprland keybinding:
 
 ```bash
-qs -p /usr/share/omarchy/shell/shell.qml ipc call minisiowo.dynamic-workspaces.service toggle
+qs -p /usr/share/omarchy/shell/shell.qml ipc call io.github.minisiowo.dynamic-workspaces.service toggle
 ```
 
 ## How it works
@@ -216,8 +226,8 @@ omarchy plugin validate .
 For local development, link it into Omarchy's user plugin directory and enable it:
 
 ```bash
-ln -s "$PWD" ~/.config/omarchy/plugins/minisiowo.dynamic-workspaces
-omarchy plugin enable minisiowo.dynamic-workspaces --section left
+ln -s "$PWD" ~/.config/omarchy/plugins/io.github.minisiowo.dynamic-workspaces
+omarchy plugin enable io.github.minisiowo.dynamic-workspaces --section left
 ```
 
 Restart the shell with `omarchy-restart-shell` after every change. The shell does watch the plugin directory, but it watches it with `inotifywait -r`, which does not follow the symlink you just made, so nothing you edit here ever reaches a running shell on its own. Use `omarchy-restart-shell` — not `omarchy-refresh-shell`, which resets `~/.config/omarchy/shell.json` to Omarchy's defaults and drops your bar layout.
@@ -225,7 +235,7 @@ Restart the shell with `omarchy-restart-shell` after every change. The shell doe
 To remove the development symlink after disabling:
 
 ```bash
-rm ~/.config/omarchy/plugins/minisiowo.dynamic-workspaces
+rm ~/.config/omarchy/plugins/io.github.minisiowo.dynamic-workspaces
 ```
 
 The profile logic is a plain `.pragma library` with no QML dependencies, so it is tested in Node:
@@ -236,13 +246,13 @@ node tests/profile-logic.test.mjs
 
 Those tests pin the workspace allocation exactly, because it is implemented twice — in JavaScript for the bar and the panel, and in Lua inside the generated module. The two must agree, or the bar shows workspaces on a monitor Hyprland will not put them on.
 
-## Roadmap
+## How it got here
 
 - `0.1`: safe profile detection and read-only preview;
 - `0.2`: profile editor and drag-and-drop workspace assignment;
 - `0.3`: opt-in Hyprland rule generation with clamshell debounce;
 - `0.4`: a default profile that assigns unrecognised monitors on its own;
-- `1.0`: screenshots, release and listing on omarchyplugins.com.
+- `1.0`: hotplug switching verified against a live compositor, and the listing on omarchyplugins.com.
 
 ## License
 
