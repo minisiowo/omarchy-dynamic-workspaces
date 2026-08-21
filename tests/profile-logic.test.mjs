@@ -508,3 +508,77 @@ if (lua.status !== 0) {
 }
 
 console.log("guarded module: ok")
+
+// ---------------------------------------------------------------------------
+// The rules the module actually builds
+//
+// Everything above tests the JavaScript half of the allocation. This runs the
+// generated Lua half against a stand-in for Hyprland's API and reads back the
+// rules it created, which is the only place the two halves can be compared on
+// the same input.
+
+if (lua.status !== 0) {
+  console.log("built rules: skipped (no lua interpreter)")
+} else {
+  const builtRules = (monitors) => {
+    const modulePath = path.join(os.tmpdir(), "dynamic-workspaces-built-" + process.pid + ".lua")
+    fs.writeFileSync(modulePath, guardedRules)
+
+    try {
+      const run = spawnSync("lua", ["-e",
+        "local monitors = " + monitors + " "
+        + "local created = {} "
+        + "hl = { "
+        + "  get_monitors = function() return monitors end, "
+        + "  workspace_rule = function(spec) "
+        + "    local rule = { workspace = spec.workspace, monitor = spec.monitor, enabled = spec.enabled } "
+        + "    function rule:set_enabled(value) self.enabled = value end "
+        + "    table.insert(created, rule) "
+        + "    return rule "
+        + "  end, "
+        + "  timer = function() end, "
+        + "  on = function() end, "
+        + "} "
+        + "dofile(os.getenv('RULES_PATH')) "
+        + "for _, rule in ipairs(created) do "
+        + "  if rule.enabled then print(rule.workspace .. '\\t' .. rule.monitor) end "
+        + "end"
+      ], { encoding: "utf8", env: Object.assign({}, process.env, { RULES_PATH: modulePath }) })
+
+      assert.equal(run.status, 0, run.stderr)
+      return run.stdout.trim().split("\n").filter(Boolean).map(line => line.split("\t"))
+    } finally {
+      fs.rmSync(modulePath, { force: true })
+    }
+  }
+
+  // An exact profile: the rules are the ones written into the module verbatim.
+  assert.deepEqual(
+    builtRules('{ { description = "Monitor A", name = "DP-1", x = 0, y = 0 }, '
+      + '{ description = "Monitor B", name = "DP-2", x = 1920, y = 0 } }'),
+    [["1", "desc:Monitor A"], ["2", "desc:Monitor A"], ["3", "desc:Monitor B"]]
+  )
+
+  // The default profile, allocating for screens it has never seen: three each,
+  // left to right, matching resolveGroups() above.
+  assert.deepEqual(
+    builtRules('{ { description = "Unknown Right", name = "DP-2", x = 1920, y = 0 }, '
+      + '{ description = "Unknown Left", name = "DP-1", x = 0, y = 0 } }'),
+    [
+      ["1", "desc:Unknown Left"], ["2", "desc:Unknown Left"], ["3", "desc:Unknown Left"],
+      ["4", "desc:Unknown Right"], ["5", "desc:Unknown Right"], ["6", "desc:Unknown Right"]
+    ]
+  )
+
+  // A screen that reports no description at all — a headless output, and some
+  // adapters — must produce no rule. `desc:` matches by prefix, so the empty
+  // selector would claim every screen connected and put one monitor's
+  // workspaces on all of them.
+  const withBlank = builtRules('{ { description = "Unknown Left", name = "DP-1", x = 0, y = 0 }, '
+    + '{ description = "", name = "HEADLESS-1", x = 1920, y = 0 } }')
+
+  assert.deepEqual(withBlank.map(rule => rule[1]), ["desc:Unknown Left", "desc:Unknown Left", "desc:Unknown Left"])
+  assert.equal(withBlank.some(rule => rule[1] === "desc:"), false, "an empty selector claims every screen")
+
+  console.log("built rules: ok")
+}

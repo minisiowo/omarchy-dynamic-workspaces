@@ -89,14 +89,27 @@ focused or occupied is read straight from `Hyprland` by each delegate. Folding i
 into the model invalidates every chip in the bar and the panel on each focus
 change, mid-drag included.
 
-## Known bugs, not yet fixed
+## Verified against a live compositor
 
-- The generated module syncs once, when Hyprland parses its config, and does not
-  react afterwards. Plug in a second monitor and the rules stay on the profile
-  that matched at parse time. The event names (`monitor.added`,
-  `monitor.removed`, `monitor.layout_changed`) and `hl.timer` with
-  `type = "oneshot"` are all valid in Hyprland 0.56.2, so the open question is
-  whether handlers registered during parsing survive it.
+The generated module does react to monitors appearing and disappearing after
+Hyprland has parsed its configuration. Handlers registered by `hl.on()` during
+parsing survive it: adding a virtual screen with `hyprctl output create
+headless` switched the active profile to the fallback allocation after the
+debounce, and `hyprctl output remove HEADLESS-1` switched it back, each time
+leaving the superseded rules present but `enabled: false`. `hyprctl -j
+workspacerules` lists disabled rules too, so read the `enabled` field rather
+than the presence of a rule. An earlier entry here recorded this as an open
+question; it is not one.
+
+That test also exposed a real bug, since fixed: a headless output reports an
+empty description, and `desc:` matches by prefix, so the empty selector it
+produced claimed every connected screen. `ordered_monitors()` in the generated
+module now drops screens without a description, mirroring the guard
+`rulesProfile()` already had. `tests/profile-logic.test.mjs` covers it by
+running the generated Lua under a stand-in `hl` and reading back the rules it
+built — the only place the JavaScript and Lua halves of the allocation are
+compared on the same input.
+
 (An earlier entry claimed the "+" button on a monitor card raises
 `ReferenceError: root is not defined` because inline components cannot see ids
 declared outside them. It does not, in this Qt: bindings inside `component
