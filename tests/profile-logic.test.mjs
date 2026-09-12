@@ -13,6 +13,11 @@ const context = { Array, Number, String, Object, JSON, Math }
 vm.createContext(context)
 vm.runInContext(source, context)
 
+// Values cross the vm realm boundary, so their arrays/objects fail a strict
+// deepEqual on prototype identity alone. Round-tripping through JSON compares
+// them by value, the way these assertions mean to.
+const plain = value => JSON.parse(JSON.stringify(value))
+
 const config = {
   version: 1,
   profiles: [
@@ -36,6 +41,9 @@ const config = {
 assert.equal(context.signature(["Monitor B", "Monitor A"]), context.signature(["Monitor A", "Monitor B"]))
 assert.equal(context.activeProfile(config, ["Monitor A", "Monitor B"]).id, "desk")
 assert.equal(context.activeProfile(config, ["Monitor A"]).id, "default")
+// Unlike activeProfile(), independent of which monitors are connected.
+assert.equal(context.defaultProfile(config).id, "default")
+assert.equal(context.defaultProfile({ version: 1, profiles: [config.profiles[0]] }), null)
 assert.deepEqual(Array.from(context.workspaceIds(config.profiles[0], "Monitor A")), [1, 2])
 assert.equal(context.workspaceLabel(config.profiles[0], 1), "💻")
 assert.equal(context.workspaceLabel(config.profiles[0], 2), "2")
@@ -75,12 +83,29 @@ const labeled = context.setWorkspaceLabel(config, "desk", 2, "🧪")
 assert.equal(context.workspaceLabel(labeled.profiles[0], 2), "🧪")
 assert.equal(context.workspaceLabel(context.setWorkspaceLabel(labeled, "desk", 2, "").profiles[0], 2), "2")
 
-assert.equal(context.nextWorkspaceId(config.profiles[0]), 4)
+assert.equal(context.nextWorkspaceId(config.profiles[0], ["Monitor A", "Monitor B"]), 4)
 assert.equal(context.setDivider(config, "desk", "\\").profiles[0].divider, "\\")
 
 const created = context.addExactProfile(config, "travel", "Travel", ["USB monitor"], { "USB monitor": [1, 2] })
 assert.equal(created.profiles[0].id, "travel")
 assert.equal(context.activeProfile(created, ["USB monitor"]).name, "Travel")
+// No labels/divider passed: same defaults as before the parameters existed.
+assert.deepEqual(plain(created.profiles[0].labels), {})
+assert.equal(created.profiles[0].divider, "|")
+
+// labels/divider carry over from the profile a layout is captured from —
+// but only for ids that actually survived into the new assignments.
+const capturedWithExtras = context.addExactProfile(
+  config,
+  "captured",
+  "Captured",
+  ["USB monitor"],
+  { "USB monitor": [1, 2] },
+  { "1": "🧪", "2": "🌐", "9": "dropped — id 9 is not in the new assignments" },
+  "~"
+)
+assert.deepEqual(plain(capturedWithExtras.profiles[0].labels), { "1": "🧪", "2": "🌐" })
+assert.equal(capturedWithExtras.profiles[0].divider, "~")
 
 // --------------------------------------------------------------- apply block
 
@@ -216,11 +241,6 @@ console.log("profile logic: ok")
 // draws, and in Lua inside the generated module, which is what Hyprland acts
 // on. They have to agree exactly, so these assertions pin the ids themselves
 // rather than the shape of the result.
-//
-// Values cross the vm realm boundary, so their arrays fail a strict deepEqual
-// on prototype identity alone. Round-tripping through JSON compares them by
-// value, the way these assertions mean to.
-const plain = value => JSON.parse(JSON.stringify(value))
 const allocation = (profile, descriptions) =>
   plain(context.resolveGroups(profile, descriptions)).map(group => group.workspaces)
 
@@ -339,8 +359,8 @@ assert.deepEqual(
 
 // The bug this fixes: on the unmaterialized profile the next free id is 1,
 // which is already on screen, so "+" would collide and renumber every monitor.
-assert.equal(context.nextWorkspaceId(autoProfile.profiles[0]), 1)
-assert.equal(context.nextWorkspaceId(materialized.profiles[0]), 7)
+assert.equal(context.nextWorkspaceId(autoProfile.profiles[0], screens), 1)
+assert.equal(context.nextWorkspaceId(materialized.profiles[0], screens), 7)
 
 // The source config is untouched, and materializing twice changes nothing.
 assert.deepEqual(plain(autoProfile.profiles[0].assignments), {})
@@ -369,6 +389,252 @@ assert.deepEqual(
   plain(context.materializeFallback(exactUntouched, "e", ["Known", "Stranger"]).profiles[0].assignments),
   { "Known": [1] }
 )
+
+// --------------------------------------- next id ignores disconnected monitors
+//
+// The default profile accumulates an assignment for every monitor it has ever
+// allocated, connected or not. The bug this guards against: with four stale
+// monitors filling 1-10 and one connected monitor sitting on 1-3, "+" handed
+// out 11 instead of the 4 that is actually free on screen.
+
+const staleProfile = {
+  version: 1,
+  profiles: [{
+    id: "default",
+    match: { mode: "default" },
+    assignments: {
+      "Gone A": [7, 8, 9],
+      "Gone B": [1],
+      "Gone C": [4, 5, 6],
+      "Gone D": [10],
+      "Connected": [1, 2, 3]
+    },
+    labels: {}
+  }]
+}
+assert.equal(context.nextWorkspaceId(staleProfile.profiles[0], ["Connected"]), 4)
+// With no descriptions, the whole profile is still in scope, so the old
+// (buggy) behaviour is exactly what asking for it produces.
+assert.equal(context.nextWorkspaceId(staleProfile.profiles[0]), 11)
+
+console.log("next id scoped to connected monitors: ok")
+
+// ------------------------------------------------------- forgetting a monitor
+
+const withStale = {
+  version: 1,
+  profiles: [{
+    id: "default",
+    match: { mode: "default" },
+    assignments: { "Gone": [4, 5], "Here": [1, 2] },
+    labels: { "4": "old", "1": "kept" }
+  }]
+}
+
+assert.deepEqual(
+  plain(context.storedMonitors(withStale.profiles[0])),
+  [
+    { description: "Gone", workspaces: [4, 5] },
+    { description: "Here", workspaces: [1, 2] }
+  ]
+)
+
+const forgotten = context.forgetMonitor(withStale, "default", "Gone")
+assert.deepEqual(plain(forgotten.profiles[0].assignments), { "Here": [1, 2] })
+// The label that belonged only to the forgotten monitor's ids is gone with it;
+// a label an id still in use elsewhere keeps.
+assert.deepEqual(plain(forgotten.profiles[0].labels), { "1": "kept" })
+// The source config is untouched.
+assert.deepEqual(plain(withStale.profiles[0].assignments), { "Gone": [4, 5], "Here": [1, 2] })
+
+// No matching monitor, or no matching profile: a no-op.
+assert.deepEqual(
+  plain(context.forgetMonitor(withStale, "default", "Nowhere").profiles[0].assignments),
+  plain(withStale.profiles[0].assignments)
+)
+assert.deepEqual(
+  plain(context.forgetMonitor(withStale, "missing", "Gone").profiles[0].assignments),
+  plain(withStale.profiles[0].assignments)
+)
+
+console.log("forgetting a monitor preset: ok")
+
+// -------------------------------------------------------- adding a monitor preset
+//
+// Pre-assigning a monitor by description before it is ever connected — the
+// same block size an automatic monitor would get, taking the lowest ids free
+// across the whole profile so two presets cannot collide if both turn out to
+// be connected at once.
+
+const forPresets = {
+  version: 1,
+  profiles: [{
+    id: "default",
+    match: { mode: "default" },
+    assignments: { "Here": [1, 2, 3] },
+    labels: {},
+    fallback: { perMonitor: 2 }
+  }]
+}
+
+const withPreset = context.addMonitorPreset(forPresets, "default", "New Screen")
+assert.deepEqual(plain(withPreset.profiles[0].assignments), { "Here": [1, 2, 3], "New Screen": [4, 5] })
+// The source config is untouched.
+assert.deepEqual(plain(forPresets.profiles[0].assignments), { "Here": [1, 2, 3] })
+
+// A description already assigned is left exactly as it is, not reshuffled.
+assert.deepEqual(
+  plain(context.addMonitorPreset(withPreset, "default", "Here").profiles[0].assignments),
+  plain(withPreset.profiles[0].assignments)
+)
+
+// Blank descriptions and unknown profiles are no-ops.
+assert.deepEqual(
+  plain(context.addMonitorPreset(forPresets, "default", "   ").profiles[0].assignments),
+  plain(forPresets.profiles[0].assignments)
+)
+assert.deepEqual(
+  plain(context.addMonitorPreset(forPresets, "missing", "New Screen").profiles[0].assignments),
+  plain(forPresets.profiles[0].assignments)
+)
+
+console.log("adding a monitor preset: ok")
+
+// ------------------------------------------ legacy "*" wildcard is not a preset
+//
+// "*" used to be a display-time wildcard, replaced by the default profile's
+// own allocation (see rulesProfile()). A config written before that may still
+// carry the key; it names no monitor, so it must not show up as a preset nor
+// tie up ids a real preset could use.
+
+const withWildcard = {
+  version: 1,
+  profiles: [{
+    id: "default",
+    match: { mode: "default" },
+    assignments: { "*": [1, 2, 3], "Here": [4, 5, 6] },
+    labels: {}
+  }]
+}
+assert.deepEqual(plain(context.storedMonitors(withWildcard.profiles[0])), [
+  { description: "Here", workspaces: [4, 5, 6] }
+])
+assert.deepEqual(
+  plain(context.addMonitorPreset(withWildcard, "default", "New Screen").profiles[0].assignments),
+  { "*": [1, 2, 3], "Here": [4, 5, 6], "New Screen": [1, 2, 3] }
+)
+
+console.log("legacy wildcard is not a preset: ok")
+
+// -------------------------------- adding a preset cannot collide with an
+// -------------------------------- automatic, not-yet-materialized monitor
+//
+// The bug this guards against: addMonitorPreset() only reserves ids from a
+// profile's own `assignments`, but a connected monitor with no explicit entry
+// is drawing its ids from resolveGroups()'s automatic allocation instead — so
+// asking for a preset without materializing first can hand out a number
+// already showing on a connected screen. Service.addMonitorPreset() avoids
+// this by materializing the default profile against whatever is connected
+// before calling addMonitorPreset(); this test exercises that same
+// composition directly against ProfileLogic.
+
+const autoProfileForPreset = {
+  version: 1,
+  profiles: [{
+    id: "default",
+    match: { mode: "default" },
+    assignments: {},
+    labels: {},
+    fallback: { perMonitor: 3 }
+  }]
+}
+const connectedNow = ["Here"]
+
+// Naively skipping materialization reproduces the bug: "Here" is showing
+// 1, 2, 3 on screen (via resolveGroups()), yet nothing reserves those ids.
+assert.deepEqual(
+  plain(context.addMonitorPreset(autoProfileForPreset, "default", "Later").profiles[0].assignments),
+  { "Later": [1, 2, 3] }
+)
+assert.deepEqual(
+  plain(context.resolveGroups(autoProfileForPreset.profiles[0], connectedNow)).map(g => g.workspaces),
+  [[1, 2, 3]]
+)
+// Both "Here" (once materialized) and "Later" would show workspace 1, 2, 3 —
+// exactly the collision. Materializing first is the fix:
+const materializedFirst = context.materializeFallback(autoProfileForPreset, "default", connectedNow)
+const withPresetAfterMaterializing = context.addMonitorPreset(materializedFirst, "default", "Later")
+assert.deepEqual(plain(withPresetAfterMaterializing.profiles[0].assignments), {
+  "Here": [1, 2, 3],
+  "Later": [4, 5, 6]
+})
+
+console.log("preset addition materializes first, no collision: ok")
+
+// --------------------------------------------------------- listing profiles
+
+const multiProfile = {
+  version: 1,
+  profiles: [
+    {
+      id: "desk",
+      name: "Desk",
+      match: { mode: "exact", monitors: ["Monitor B", "Monitor A"] },
+      assignments: {}
+    },
+    {
+      id: "default",
+      name: "Default",
+      match: { mode: "default" },
+      assignments: {}
+    }
+  ]
+}
+
+assert.deepEqual(plain(context.savedProfiles(multiProfile)), [
+  { id: "desk", name: "Desk", mode: "exact", monitors: ["Monitor B", "Monitor A"] },
+  { id: "default", name: "Default", mode: "default", monitors: [] }
+])
+
+console.log("listing profiles: ok")
+
+// -------------------------------------------------------- deleting a profile
+
+const afterDeletingDesk = context.removeProfile(multiProfile, "desk")
+assert.deepEqual(plain(context.savedProfiles(afterDeletingDesk)).map(p => p.id), ["default"])
+// The source config is untouched.
+assert.equal(multiProfile.profiles.length, 2)
+
+// The last remaining profile cannot be deleted — there would be nothing left
+// for activeProfile() to fall back to.
+assert.deepEqual(
+  plain(context.savedProfiles(context.removeProfile(afterDeletingDesk, "default"))).map(p => p.id),
+  ["default"]
+)
+
+// An unknown id is a no-op.
+assert.deepEqual(
+  plain(context.savedProfiles(context.removeProfile(multiProfile, "missing"))).map(p => p.id),
+  ["desk", "default"]
+)
+
+// The default profile is refused even with other profiles still standing —
+// it is what every unrecognised monitor set falls back to, not just a
+// placeholder kept around for the "at least one profile" rule above.
+const threeProfiles = {
+  version: 1,
+  profiles: [
+    { id: "desk", name: "Desk", match: { mode: "exact", monitors: ["A"] }, assignments: {} },
+    { id: "default", name: "Default", match: { mode: "default" }, assignments: {} },
+    { id: "travel", name: "Travel", match: { mode: "exact", monitors: ["B"] }, assignments: {} }
+  ]
+}
+assert.deepEqual(
+  plain(context.savedProfiles(context.removeProfile(threeProfiles, "default"))).map(p => p.id),
+  ["desk", "default", "travel"]
+)
+
+console.log("deleting a profile: ok")
 
 // ------------------------------------------- generated module is canonical
 //

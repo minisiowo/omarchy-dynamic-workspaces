@@ -78,6 +78,30 @@ Item {
     }
     return count
   }
+  // Every profile in the config, by name — what a "PROFILES" section lists
+  // and offers to delete. Includes the default profile alongside every named
+  // exact one.
+  readonly property var savedProfiles: ProfileLogic.savedProfiles(root.config)
+
+  // Every monitor the default profile has a saved layout for, connected or
+  // not — the panel's preset list. Deliberately the default profile always,
+  // not root.activeProfile: presets belong to the fallback, and reading
+  // whichever profile is active would show (and let you edit) an exact
+  // profile's real, in-use assignments instead. `connected` just decorates
+  // each entry for display; it plays no part in which ones are offered.
+  readonly property var monitorPresets: {
+    var connected = root.monitorDescriptions
+    var stored = ProfileLogic.storedMonitors(ProfileLogic.defaultProfile(root.config))
+    var result = []
+    for (var i = 0; i < stored.length; i++) {
+      result.push({
+        description: stored[i].description,
+        workspaces: stored[i].workspaces,
+        connected: connected.indexOf(stored[i].description) >= 0
+      })
+    }
+    return result
+  }
 
   // Panel open/close arrives here rather than at the bar widget. A widget-level
   // IPC target is claimed by whichever instance registers first, and the bar
@@ -156,6 +180,9 @@ Item {
   // The next free id has to be read from the materialized profile: on the
   // default profile the visible workspaces are allocated, not assigned, so
   // asking the stored assignments would hand back an id already on screen.
+  // It is also scoped to the monitors actually connected — the default
+  // profile keeps assignments for monitors long gone, and an id reserved only
+  // on one of those is not really taken.
   function addWorkspace(monitorDescription) {
     if (!root.activeProfile) return 0
 
@@ -165,7 +192,7 @@ Item {
 
     // Applied to the same materialized config the id was read from, rather than
     // going back through moveWorkspace() and materializing a second time.
-    var workspaceId = ProfileLogic.nextWorkspaceId(next.profiles[index])
+    var workspaceId = ProfileLogic.nextWorkspaceId(next.profiles[index], root.orderedDescriptions())
     applyConfig(ProfileLogic.moveWorkspaceAt(next, root.activeProfileId, workspaceId, monitorDescription, undefined))
     return workspaceId
   }
@@ -173,6 +200,43 @@ Item {
   function removeWorkspace(workspaceId) {
     if (root.activeProfileId === "") return
     applyConfig(ProfileLogic.removeWorkspace(root.editableConfig(), root.activeProfileId, workspaceId))
+  }
+
+  // Always the default profile, never root.activeProfileId — see
+  // monitorPresets above. Deliberately not through editableConfig() either:
+  // the entry being forgotten is already explicit, so there is nothing to
+  // materialize first, and editableConfig() only ever materializes the
+  // active profile, which need not be the default one this targets.
+  function forgetMonitor(monitorDescription) {
+    var profile = ProfileLogic.defaultProfile(root.config)
+    if (!profile) return
+    applyConfig(ProfileLogic.forgetMonitor(root.config, profile.id, monitorDescription))
+  }
+
+  // Always the default profile, materialized against whichever monitors are
+  // connected right now regardless of whether it is the active one. Skipping
+  // that materialization was the bug: ProfileLogic.addMonitorPreset() reserves
+  // ids from the profile's own assignments, and a connected monitor that is
+  // still automatic (not yet written down) has ids the preset would not see —
+  // it could then hand out a number already showing on screen, colliding the
+  // moment the preset's monitor actually connects. Materializing first makes
+  // those ids explicit before the reservation runs.
+  // Returns whether a preset was actually added, so the panel knows whether
+  // to clear its input field.
+  function addMonitorPreset(monitorDescription) {
+    var profile = ProfileLogic.defaultProfile(root.config)
+    if (!profile) return false
+
+    var trimmed = String(monitorDescription || "").trim()
+    if (trimmed === "") return false
+
+    var next = ProfileLogic.materializeFallback(root.config, profile.id, root.connectedDescriptionsInOrder())
+    var index = ProfileLogic.profileIndex(next, profile.id)
+    if (index < 0 || Object.prototype.hasOwnProperty.call(next.profiles[index].assignments, trimmed))
+      return false
+
+    applyConfig(ProfileLogic.addMonitorPreset(next, profile.id, trimmed))
+    return true
   }
 
   function setWorkspaceLabel(workspaceId, label) {
@@ -191,6 +255,10 @@ Item {
   // is a valid value rather than a no-op.
   function setFocusMark(mark) {
     applyConfig(ProfileLogic.withAppearance(root.config, { focusMark: mark }))
+  }
+
+  function removeProfile(profileId) {
+    applyConfig(ProfileLogic.removeProfile(root.config, profileId))
   }
 
   // Saves what the panel is showing, not where Hyprland currently happens to
@@ -221,12 +289,17 @@ Item {
   function saveCurrentSetup(name) {
     if (root.activeProfileMode === "exact" || root.monitorDescriptions.length === 0) return false
     var profileId = "setup-" + Date.now()
+    // Labels and the divider come from the profile the layout is being
+    // captured from — usually the default one — so "Save setup" keeps what
+    // you named your workspaces and how you divided them, not just their ids.
     var next = ProfileLogic.addExactProfile(
       root.config,
       profileId,
       String(name || "Current monitor setup"),
       root.monitorDescriptions,
-      assignmentsFromGroups()
+      assignmentsFromGroups(),
+      root.activeProfile ? root.activeProfile.labels : {},
+      root.activeProfile ? root.activeProfile.divider : "|"
     )
     applyConfig(next)
     return true
@@ -293,29 +366,20 @@ Item {
     root.hookInstalled = false
   }
 
-  // Monitor descriptions in the order the groups are laid out, which is what
-  // the fallback allocation is computed against.
-  function orderedDescriptions() {
-    var groups = root.groups
-    var result = []
-    for (var i = 0; i < groups.length; i++) result.push(groups[i].description)
-    return result
-  }
-
-  // Only what the profile decides: which workspaces belong to which monitor,
-  // and what they are called. Whether a workspace is occupied or focused is
-  // live compositor state, and the views read that straight from Hyprland —
-  // folding it in here would invalidate this whole model, and with it every
-  // delegate in the bar and the panel, on each focus change.
-  function buildGroups() {
+  // Connected monitors, sorted left to right by position — the order the
+  // generated module sorts by too, so the ids the bar shows for an
+  // unrecognised monitor are the ids Hyprland assigns it. Independent of
+  // which profile is active: buildGroups() and the fallback allocation both
+  // need this same order, but so does anything that has to reason about what
+  // is connected right now regardless of what is on screen (see
+  // Service.addMonitorPreset()).
+  function sortedConnectedMonitors() {
     var monitors = []
     var values = root.activeMonitors
     for (var i = 0; i < values.length; i++) {
       if (values[i]) monitors.push(values[i])
     }
 
-    // Same order the generated module sorts by, so the ids the bar shows for an
-    // unrecognised monitor are the ids Hyprland assigns it.
     monitors.sort(function(left, right) {
       var leftX = Number(left.x || 0)
       var rightX = Number(right.x || 0)
@@ -328,11 +392,32 @@ Item {
       return String(left.name || "").localeCompare(String(right.name || ""))
     })
 
+    return monitors
+  }
+
+  function connectedDescriptionsInOrder() {
+    var monitors = sortedConnectedMonitors()
     var descriptions = []
-    for (var descriptionIndex = 0; descriptionIndex < monitors.length; descriptionIndex++) {
-      var current = monitors[descriptionIndex]
-      descriptions.push(String(current.description || current.name || ""))
+    for (var i = 0; i < monitors.length; i++) {
+      descriptions.push(String(monitors[i].description || monitors[i].name || ""))
     }
+    return descriptions
+  }
+
+  // Monitor descriptions in the order the groups are laid out, which is what
+  // the fallback allocation is computed against.
+  function orderedDescriptions() {
+    return connectedDescriptionsInOrder()
+  }
+
+  // Only what the profile decides: which workspaces belong to which monitor,
+  // and what they are called. Whether a workspace is occupied or focused is
+  // live compositor state, and the views read that straight from Hyprland —
+  // folding it in here would invalidate this whole model, and with it every
+  // delegate in the bar and the panel, on each focus change.
+  function buildGroups() {
+    var monitors = sortedConnectedMonitors()
+    var descriptions = connectedDescriptionsInOrder()
 
     var groups = ProfileLogic.resolveGroups(root.activeProfile, descriptions)
     var result = []

@@ -281,6 +281,12 @@ BarWidget {
                 foreground: root.panelForeground
                 accent: Color.accent
                 onAccepted: saveSetupButton.clicked()
+                Keys.onPressed: function(event) {
+                  if (event.matches(StandardKey.Paste)) {
+                    root.pasteInto(profileNameEditor)
+                    event.accepted = true
+                  }
+                }
               }
 
               Button {
@@ -723,6 +729,192 @@ BarWidget {
             wrapMode: Text.WordWrap
             font.family: root.panelFont
             font.pixelSize: Style.font.caption
+          }
+
+          PanelSeparator { foreground: root.panelForeground }
+
+          Column {
+            width: parent.width
+            spacing: Style.space(8)
+
+            PanelSectionHeader {
+              text: "PROFILES"
+              foreground: root.panelForeground
+              fontFamily: root.panelFont
+            }
+
+            Column {
+              width: parent.width
+              spacing: Style.space(8)
+
+              Repeater {
+                model: root.service ? root.service.savedProfiles : []
+
+                RowLayout {
+                  id: profileRow
+                  required property var modelData
+                  width: parent.width
+                  spacing: Style.spacing.controlGap
+
+                  readonly property bool isActive: root.service && root.service.activeProfileId === profileRow.modelData.id
+                  readonly property bool isDefault: profileRow.modelData.mode === "default"
+                  readonly property bool onlyProfile: root.service && root.service.savedProfiles.length <= 1
+
+                  Text {
+                    Layout.alignment: Qt.AlignVCenter
+                    text: profileRow.modelData.name
+                    color: root.panelForeground
+                    font.family: root.panelFont
+                    font.pixelSize: Style.font.caption
+                    font.bold: profileRow.isActive
+                  }
+
+                  Text {
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignVCenter
+                    visible: !profileRow.isDefault
+                    text: profileRow.modelData.monitors.join(", ")
+                    color: root.panelDim
+                    elide: Text.ElideRight
+                    font.family: root.panelFont
+                    font.pixelSize: Style.font.caption
+                  }
+
+                  Item { Layout.fillWidth: profileRow.isDefault }
+
+                  // A pill rather than a parenthetical: the full explanation
+                  // only needs to be read once, on hover, not every time the
+                  // list is glanced at.
+                  Rectangle {
+                    Layout.alignment: Qt.AlignVCenter
+                    visible: profileRow.isDefault
+                    implicitWidth: defaultLabel.implicitWidth + Style.space(10)
+                    implicitHeight: defaultLabel.implicitHeight + Style.space(4)
+                    radius: height / 2
+                    color: Qt.rgba(root.panelForeground.r, root.panelForeground.g, root.panelForeground.b, 0.10)
+
+                    Text {
+                      id: defaultLabel
+                      anchors.centerIn: parent
+                      text: "DEFAULT"
+                      color: root.panelDim
+                      font.family: root.panelFont
+                      font.pixelSize: Style.font.caption
+                      font.bold: true
+                    }
+
+                    HoverHandler { id: defaultHover }
+
+                    PanelToolTip {
+                      visible: defaultHover.hovered
+                      text: "Fallback for any monitor set no other profile names. Cannot be deleted here."
+                      fontFamily: root.panelFont
+                    }
+                  }
+
+                  // The default profile cannot be deleted from here at all —
+                  // removeProfile() refuses it regardless of how many other
+                  // profiles exist, since it is what every unrecognised
+                  // monitor set falls back to.
+                  PanelActionButton {
+                    Layout.alignment: Qt.AlignVCenter
+                    visible: !profileRow.isDefault && !profileRow.onlyProfile
+                    iconText: "󰆴"
+                    tooltipText: "Delete this profile"
+                    foreground: root.panelForeground
+                    hoverColor: root.bar ? root.bar.urgent : Color.urgent
+                    fontFamily: root.panelFont
+                    onClicked: if (root.service) root.service.removeProfile(profileRow.modelData.id)
+                  }
+                }
+              }
+            }
+          }
+
+          PanelSeparator { foreground: root.panelForeground }
+
+          Column {
+            width: parent.width
+            spacing: Style.space(8)
+
+            PanelSectionHeader {
+              text: "DEFAULT PROFILE PRESETS"
+              foreground: root.panelForeground
+              fontFamily: root.panelFont
+            }
+
+            Column {
+              width: parent.width
+              spacing: Style.space(8)
+              visible: root.service && root.service.monitorPresets.length > 0
+
+              Repeater {
+                model: root.service ? root.service.monitorPresets : []
+
+                RowLayout {
+                  required property var modelData
+                  width: parent.width
+                  spacing: Style.spacing.controlGap
+
+                  Text {
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignVCenter
+                    text: modelData.description + "  (" + modelData.workspaces.join(", ") + ")"
+                      + (modelData.connected ? "" : "  — not connected")
+                    color: root.panelDim
+                    elide: Text.ElideRight
+                    font.family: root.panelFont
+                    font.pixelSize: Style.font.caption
+                  }
+
+                  PanelActionButton {
+                    Layout.alignment: Qt.AlignVCenter
+                    iconText: "󰆴"
+                    tooltipText: "Forget this monitor's preset"
+                    foreground: root.panelForeground
+                    hoverColor: root.bar ? root.bar.urgent : Color.urgent
+                    fontFamily: root.panelFont
+                    onClicked: if (root.service) root.service.forgetMonitor(modelData.description)
+                  }
+                }
+              }
+            }
+
+            RowLayout {
+              width: parent.width
+              spacing: Style.spacing.controlGap
+
+              TextField {
+                id: presetDescriptionEditor
+                Layout.fillWidth: true
+                Layout.alignment: Qt.AlignVCenter
+                placeholderText: "Monitor description"
+                foreground: root.panelForeground
+                accent: Color.accent
+                onAccepted: addPresetButton.clicked()
+                Keys.onPressed: function(event) {
+                  if (event.matches(StandardKey.Paste)) {
+                    root.pasteInto(presetDescriptionEditor)
+                    event.accepted = true
+                  }
+                }
+              }
+
+              Button {
+                id: addPresetButton
+                Layout.alignment: Qt.AlignVCenter
+                text: "Add preset"
+                bordered: true
+                tooltipText: "Pre-assigns workspaces to a monitor by description, before it is ever connected."
+                foreground: root.panelForeground
+                fontFamily: root.panelFont
+                onClicked: {
+                  if (root.service && root.service.addMonitorPreset(presetDescriptionEditor.text)) {
+                    presetDescriptionEditor.text = ""
+                  }
+                }
+              }
+            }
           }
         }
       }

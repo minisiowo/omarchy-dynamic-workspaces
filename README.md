@@ -207,6 +207,12 @@ Editing an automatically assigned screen writes the **whole** visible layout int
 
 Saving an unrecognised setup as a profile records the layout the panel is showing rather than where Hyprland currently happens to put things. The two agree once Apply is on; before that they need not, and what you saw is what you meant to save.
 
+The default profile keeps an assignment for every monitor it has ever allocated, connected or not — that is what lets a familiar screen get its old workspaces back the moment it is plugged in again. The **+** button on a monitor card picks the lowest id free among monitors actually connected right now, so a screen that had `1 2 3` gets `4` even if disconnected screens still hold higher ids in the profile.
+
+The **DEFAULT PROFILE PRESETS** section at the bottom of the panel lists every one of those assignments, connected or not, each with a button to forget it. Typing a description and clicking **Add preset** assigns it a block up front — the same size an automatic monitor gets — so a screen you have not plugged in yet still comes up with its own workspaces the first time it does. This section always edits the default profile specifically, regardless of which profile is currently active — switching to an exact profile does not change what it shows or what "Add preset" writes to.
+
+The **PROFILES** section, just above it, lists every profile in the config by name — the ones saved through *Save setup* included — with a button to delete any of them. The default profile has no delete button: it is the fallback every unrecognised monitor set lands on, so removing it would leave those monitors with no workspaces assigned at all. Deleting the last exact profile is refused too, for the same reason — there is always at least one profile left to match against.
+
 ### Screens that cannot be told apart
 
 Monitors are addressed by the description they report, and two screens of the same model report the same one. Hyprland's `desc:` selector cannot single one of them out, and neither can the assignments, so they are resolved as a single logical monitor sharing one set of workspaces. A hand-written profile does not help; the limit is in what `desc:` can express.

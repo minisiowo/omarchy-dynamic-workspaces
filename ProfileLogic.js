@@ -139,6 +139,21 @@ function activeProfile(config, descriptions) {
   return fallback
 }
 
+// The one profile every unrecognised monitor set falls back to — independent
+// of which profile happens to be active right now. Presets belong to this
+// profile specifically, not to whatever the panel is currently showing, so
+// anything that edits them needs to find it directly rather than going
+// through activeProfile().
+function defaultProfile(config) {
+  var profiles = normalizedConfig(config).profiles
+
+  for (var i = 0; i < profiles.length; i++) {
+    if (String(asObject(profiles[i].match).mode || "") === "default") return profiles[i]
+  }
+
+  return null
+}
+
 function workspaceIds(profile, monitorDescription) {
   if (!profile) return []
 
@@ -317,6 +332,52 @@ function profileIndex(config, profileId) {
   return -1
 }
 
+// Every profile in the config, in order — what a "PROFILES" section lists and
+// offers to delete by name. An exact profile carries the monitors it was
+// saved for; the default profile names none, so its list is empty.
+function savedProfiles(config) {
+  var profiles = normalizedConfig(config).profiles
+  var result = []
+
+  for (var i = 0; i < profiles.length; i++) {
+    var profile = profiles[i]
+    var match = asObject(profile.match)
+    var mode = String(match.mode || "")
+    var monitors = []
+
+    if (mode === "exact") {
+      var values = asArray(match.monitors)
+      for (var j = 0; j < values.length; j++) monitors.push(String(values[j]))
+    }
+
+    result.push({
+      id: String(profile.id || ""),
+      name: profileName(profile),
+      mode: mode,
+      monitors: monitors
+    })
+  }
+
+  return result
+}
+
+// Deletes a profile outright — the panel's way of clearing out a saved setup
+// nobody uses any more. Refuses to empty the list entirely: a config with no
+// profiles has nothing for activeProfile() to fall back to, so the last one
+// standing stays no matter which id is asked for. The default profile is
+// refused unconditionally, even with exact profiles left standing: without it
+// any monitor set that does not match one of those exactly — a new screen, an
+// unfamiliar docking station — would get no workspaces assigned at all.
+function removeProfile(config, profileId) {
+  var next = copy(normalizedConfig(config))
+  var index = profileIndex(next, profileId)
+  if (index < 0 || next.profiles.length <= 1) return next
+  if (isFallbackProfile(next.profiles[index])) return next
+
+  next.profiles.splice(index, 1)
+  return next
+}
+
 function withoutWorkspace(assignments, workspaceId) {
   var result = copy(asObject(assignments))
   var id = Number(workspaceId)
@@ -389,6 +450,105 @@ function removeWorkspace(config, profileId, workspaceId) {
   return next
 }
 
+// Every monitor a profile has an assignment for, connected or not — the
+// panel's list of presets, offered for both adding to and forgetting. Sorted
+// by description so the list does not reorder itself between renders.
+function storedMonitors(profile) {
+  var assignments = asObject(profile ? profile.assignments : null)
+  var result = []
+
+  for (var monitor in assignments) {
+    // "*" used to be a display-time wildcard (see rulesProfile()) and names no
+    // real monitor; a config written before the allocation replaced it can
+    // still carry the key, and it has no business showing up as a preset.
+    if (monitor === "" || monitor === "*") continue
+    result.push({ description: String(monitor), workspaces: workspaceIds(profile, monitor) })
+  }
+
+  result.sort(function(left, right) { return left.description.localeCompare(right.description) })
+  return result
+}
+
+// Pre-assigns a monitor by description before it is ever connected — the
+// panel's way of adding a preset. The block it gets is sized like an
+// automatic monitor's (fallbackPerMonitor) and takes the lowest ids free
+// across every assignment already in the profile, connected or not: two
+// presets that later turn out to be connected at once must not collide.
+// This alone cannot see ids an automatic, connected-but-not-yet-materialized
+// monitor is currently showing on screen — the caller (Service.addMonitorPreset)
+// is responsible for materializing the profile against whatever is connected
+// right now before calling this, so that by the time it runs, `assignments`
+// already accounts for every id in use, connected or not.
+// A description already assigned is left untouched rather than reshuffled.
+function addMonitorPreset(config, profileId, monitorDescription) {
+  var next = copy(normalizedConfig(config))
+  var index = profileIndex(next, profileId)
+  var monitor = String(monitorDescription || "").trim()
+  if (index < 0 || monitor === "") return next
+
+  var profile = next.profiles[index]
+  var assignments = copy(asObject(profile.assignments))
+  if (Object.prototype.hasOwnProperty.call(assignments, monitor)) return next
+
+  var reserved = {}
+  for (var other in assignments) {
+    if (other === "" || other === "*") continue
+    var values = asArray(assignments[other])
+    for (var i = 0; i < values.length; i++) reserved[Number(values[i])] = true
+  }
+
+  var perMonitor = fallbackPerMonitor(profile)
+  var ids = []
+  var candidate = 1
+  while (ids.length < perMonitor) {
+    if (!reserved[candidate]) {
+      reserved[candidate] = true
+      ids.push(candidate)
+    }
+    candidate += 1
+  }
+
+  assignments[monitor] = ids
+  profile.assignments = assignments
+  return next
+}
+
+// Drops a monitor's saved layout from a profile — the panel's way of clearing
+// out a screen that is not coming back. Ids that monitor was the only holder
+// of lose their labels too, for the same reason removeWorkspace() does: a
+// label left behind is dead weight that comes back to life if that id is ever
+// assigned again, on this monitor or another.
+function forgetMonitor(config, profileId, monitorDescription) {
+  var next = copy(normalizedConfig(config))
+  var index = profileIndex(next, profileId)
+  var monitor = String(monitorDescription || "")
+  if (index < 0 || monitor === "") return next
+
+  var profile = next.profiles[index]
+  var assignments = asObject(profile.assignments)
+  if (!Object.prototype.hasOwnProperty.call(assignments, monitor)) return next
+
+  var forgotten = asArray(assignments[monitor])
+  var remaining = copy(assignments)
+  delete remaining[monitor]
+  profile.assignments = remaining
+
+  var stillUsed = {}
+  for (var otherMonitor in remaining) {
+    var values = asArray(remaining[otherMonitor])
+    for (var i = 0; i < values.length; i++) stillUsed[Number(values[i])] = true
+  }
+
+  var labels = copy(asObject(profile.labels))
+  for (var j = 0; j < forgotten.length; j++) {
+    var id = Number(forgotten[j])
+    if (!stillUsed[id]) delete labels[String(id)]
+  }
+  profile.labels = labels
+
+  return next
+}
+
 function setWorkspaceLabel(config, profileId, workspaceId, label) {
   var next = copy(normalizedConfig(config))
   var index = profileIndex(next, profileId)
@@ -412,12 +572,18 @@ function setDivider(config, profileId, divider) {
   return next
 }
 
-function configuredWorkspaceIds(profile) {
+// With no `descriptions`, every monitor the profile has ever seen counts. Pass
+// the monitors actually connected to narrow that to just their assignments —
+// on the default profile the assignments also cover monitors that vanished
+// long ago, and their ids have nothing to do with what is free right now.
+function configuredWorkspaceIds(profile, descriptions) {
   var assignments = asObject(profile ? profile.assignments : null)
+  var only = descriptions === undefined || descriptions === null ? null : uniqueStrings(descriptions)
   var ids = []
   var seen = {}
 
   for (var monitor in assignments) {
+    if (only !== null && only.indexOf(monitor) < 0) continue
     var values = asArray(assignments[monitor])
     for (var i = 0; i < values.length; i++) {
       var id = Number(values[i])
@@ -431,8 +597,14 @@ function configuredWorkspaceIds(profile) {
   return ids
 }
 
-function nextWorkspaceId(profile) {
-  var ids = configuredWorkspaceIds(profile)
+// Picking "+" a number that is only reserved on a monitor nobody has now would
+// collide with nothing on screen, yet still skip it — the default profile's
+// assignments accumulate every monitor it has ever allocated, connected or
+// not. Restricting `descriptions` to the monitors actually connected keeps
+// this in step with resolveGroups() and the generated fallback_groups(), both
+// of which reserve ids from connected monitors only.
+function nextWorkspaceId(profile, descriptions) {
+  var ids = configuredWorkspaceIds(profile, descriptions)
   var candidate = 1
   for (var i = 0; i < ids.length; i++) {
     if (ids[i] === candidate) candidate++
@@ -797,15 +969,34 @@ function renderRules(config, options) {
   return lines.join("\n")
 }
 
-function addExactProfile(config, id, name, descriptions, assignments) {
+// `labels`/`divider` carry over from the profile the layout was captured
+// from — omitted, they default to none/`"|"` as before. Labels are filtered
+// to the ids that actually survived into `assignments`: a label for an id
+// that got dropped along the way is the same dead weight removeWorkspace()
+// and forgetMonitor() already clear out, just reached from a different edit.
+function addExactProfile(config, id, name, descriptions, assignments, labels, divider) {
   var next = copy(normalizedConfig(config))
+  var finalAssignments = copy(asObject(assignments))
+
+  var usedIds = {}
+  for (var monitor in finalAssignments) {
+    var values = asArray(finalAssignments[monitor])
+    for (var i = 0; i < values.length; i++) usedIds[Number(values[i])] = true
+  }
+
+  var sourceLabels = asObject(labels)
+  var finalLabels = {}
+  for (var key in sourceLabels) {
+    if (usedIds[Number(key)]) finalLabels[key] = sourceLabels[key]
+  }
+
   next.profiles.unshift({
     id: String(id),
     name: String(name || "Current monitor setup"),
     match: { mode: "exact", monitors: uniqueStrings(descriptions) },
-    assignments: copy(asObject(assignments)),
-    labels: {},
-    divider: "|"
+    assignments: finalAssignments,
+    labels: finalLabels,
+    divider: String(divider === undefined || divider === null ? "|" : divider)
   })
   return next
 }
