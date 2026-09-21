@@ -775,6 +775,31 @@ if (lua.status !== 0) {
 
 console.log("guarded module: ok")
 
+// Workspaces holding windows that the profile gives to no screen — what a
+// docked layout leaves on the laptop panel when the external one is unplugged.
+{
+  const groups = [{ name: "eDP-1", workspaces: [{ id: 1 }, { id: 2 }, { id: 3 }] }]
+  const live = [
+    { id: 1, monitor: "eDP-1", windows: 2 },
+    { id: 4, monitor: "eDP-1", windows: 1 },
+    { id: 5, monitor: "eDP-1", windows: 0 },
+    { id: 6, monitor: "eDP-1", windows: 3 },
+    { id: -98, monitor: "eDP-1", windows: 1 }
+  ]
+
+  assert.deepEqual(
+    plain(context.strandedWorkspaces(groups, live)),
+    [{ id: 4, monitor: "eDP-1" }, { id: 6, monitor: "eDP-1" }],
+    "occupied, unassigned, ordinary workspaces only"
+  )
+  assert.deepEqual(plain(context.strandedWorkspaces(groups, [])), [])
+  assert.deepEqual(
+    plain(context.strandedWorkspaces([], [{ id: 2, monitor: "DP-1", windows: 1 }])),
+    [{ id: 2, monitor: "DP-1" }]
+  )
+  console.log("stranded workspaces: ok")
+}
+
 // ---------------------------------------------------------------------------
 // The rules the module actually builds
 //
@@ -786,16 +811,33 @@ console.log("guarded module: ok")
 if (lua.status !== 0) {
   console.log("built rules: skipped (no lua interpreter)")
 } else {
-  const builtRules = (monitors) => {
+  // Runs the generated module against a stand-in Hyprland and returns what it
+  // did: the rules it left enabled, and the dispatches it issued, in order.
+  const runModule = (monitors, workspaces = "{}", active = "nil") => {
     const modulePath = path.join(os.tmpdir(), "dynamic-workspaces-built-" + process.pid + ".lua")
     fs.writeFileSync(modulePath, guardedRules)
 
     try {
       const run = spawnSync("lua", ["-e",
         "local monitors = " + monitors + " "
+        + "local workspaces = " + workspaces + " "
+        + "local active = " + active + " "
         + "local created = {} "
         + "hl = { "
         + "  get_monitors = function() return monitors end, "
+        + "  get_workspaces = function() return workspaces end, "
+        + "  get_active_workspace = function() return active end, "
+        + "  dsp = { "
+        + "    workspace = { move = function(spec) return { kind = 'move', spec = spec } end }, "
+        + "    focus = function(spec) return { kind = 'focus', spec = spec } end, "
+        + "  }, "
+        + "  dispatch = function(action) "
+        + "    if action.kind == 'move' then "
+        + "      print('MOVE\\t' .. tostring(action.spec.workspace) .. '\\t' .. tostring(action.spec.monitor)) "
+        + "    else "
+        + "      print('FOCUS\\t' .. tostring(action.spec.workspace)) "
+        + "    end "
+        + "  end, "
         + "  workspace_rule = function(spec) "
         + "    local rule = { workspace = spec.workspace, monitor = spec.monitor, enabled = spec.enabled } "
         + "    function rule:set_enabled(value) self.enabled = value end "
@@ -807,16 +849,22 @@ if (lua.status !== 0) {
         + "} "
         + "dofile(os.getenv('RULES_PATH')) "
         + "for _, rule in ipairs(created) do "
-        + "  if rule.enabled then print(rule.workspace .. '\\t' .. rule.monitor) end "
+        + "  if rule.enabled then print('RULE\\t' .. rule.workspace .. '\\t' .. rule.monitor) end "
         + "end"
       ], { encoding: "utf8", env: Object.assign({}, process.env, { RULES_PATH: modulePath }) })
 
       assert.equal(run.status, 0, run.stderr)
-      return run.stdout.trim().split("\n").filter(Boolean).map(line => line.split("\t"))
+      const lines = run.stdout.trim().split("\n").filter(Boolean).map(line => line.split("\t"))
+      return {
+        rules: lines.filter(line => line[0] === "RULE").map(line => line.slice(1)),
+        actions: lines.filter(line => line[0] !== "RULE")
+      }
     } finally {
       fs.rmSync(modulePath, { force: true })
     }
   }
+
+  const builtRules = (monitors) => runModule(monitors).rules
 
   // An exact profile: the rules are the ones written into the module verbatim.
   assert.deepEqual(
@@ -847,4 +895,30 @@ if (lua.status !== 0) {
   assert.equal(withBlank.some(rule => rule[1] === "desc:"), false, "an empty selector claims every screen")
 
   console.log("built rules: ok")
+
+  // Workspaces that Hyprland parked on another screen while their own was away
+  // are sent home once the profile is chosen, and the focus is put back. The
+  // profile is Monitor A [1, 2] / Monitor B [3].
+  const docked = '{ { description = "Monitor A", name = "DP-1", x = 0, y = 0 }, '
+    + '{ description = "Monitor B", name = "DP-2", x = 1920, y = 0 } }'
+  const onA = (id) => `{ id = ${id}, monitor = { description = "Monitor A" } }`
+  const onB = (id) => `{ id = ${id}, monitor = { description = "Monitor B" } }`
+
+  // Workspace 3 belongs to B but is sitting on A with the user looking at 1.
+  assert.deepEqual(
+    runModule(docked, `{ ${onA(1)}, ${onA(3)} }`, onA(1)).actions,
+    [["MOVE", "3", "desc:Monitor B"], ["FOCUS", "1"]]
+  )
+
+  // Everything already home: nothing is dispatched, so focus is never disturbed.
+  assert.deepEqual(runModule(docked, `{ ${onA(1)}, ${onA(2)}, ${onB(3)} }`, onA(1)).actions, [])
+
+  // A workspace the profile does not name is left alone, and one that does not
+  // exist yet is not created by being moved.
+  assert.deepEqual(runModule(docked, `{ ${onB(9)} }`, onA(1)).actions, [])
+
+  // No workspaces reported: nothing to do, and no focus to restore.
+  assert.deepEqual(runModule(docked).actions, [])
+
+  console.log("homing workspaces: ok")
 }

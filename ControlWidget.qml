@@ -115,6 +115,24 @@ BarWidget {
     return false
   }
 
+  // Workspaces holding windows that the active profile gives to no screen, on
+  // the given monitor: what an unplugged screen leaves behind. Listed so the
+  // windows on them can still be reached; they are not part of the profile.
+  function strandedOn(monitorName) {
+    if (!root.service) return []
+    var all = root.service.strandedWorkspaces
+    var result = []
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].monitor === monitorName) result.push(all[i])
+    }
+    return result
+  }
+
+  function focusWorkspace(id) {
+    if (!root.bar) return
+    root.bar.run("hyprctl dispatch " + Util.shellQuote("hl.dsp.focus({ workspace = \"" + id + "\" })"))
+  }
+
   function workspaceOccupied(id) {
     var values = Hyprland.workspaces.values
     for (var i = 0; i < values.length; i++) {
@@ -1261,6 +1279,64 @@ BarWidget {
             }
           }
         }
+      }
+
+      RowLayout {
+        id: strandedRow
+        readonly property var stranded: root.strandedOn(card.name)
+        visible: strandedRow.stranded.length > 0
+        width: parent.width
+        spacing: Style.space(6)
+
+        Text {
+          Layout.alignment: Qt.AlignVCenter
+          text: "NOT IN THIS PROFILE"
+          color: root.panelDim
+          font.family: root.panelFont
+          font.pixelSize: Style.font.caption
+        }
+
+        Repeater {
+          model: strandedRow.stranded
+
+          Rectangle {
+            id: strandedChip
+            required property var modelData
+
+            Layout.alignment: Qt.AlignVCenter
+            Layout.preferredWidth: Math.max(Style.space(24), strandedLabel.implicitWidth + Style.space(14))
+            Layout.preferredHeight: Style.space(24)
+            radius: Style.cornerRadius
+            color: Style.normalFillFor(root.panelForeground, Color.accent)
+            border.width: Math.max(1, Style.normalBorderWidth)
+            border.color: Color.accent
+
+            Text {
+              id: strandedLabel
+              anchors.centerIn: parent
+              text: String(strandedChip.modelData.id)
+              color: root.panelForeground
+              font.family: root.panelFont
+              font.pixelSize: Style.font.body
+            }
+
+            HoverHandler { id: strandedHover }
+
+            PanelToolTip {
+              visible: strandedHover.hovered
+              text: "Workspace " + strandedChip.modelData.id + " has windows but this profile does not assign it. Click to switch to it; it returns to its own screen when that screen is back."
+              fontFamily: root.panelFont
+            }
+
+            MouseArea {
+              anchors.fill: parent
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.focusWorkspace(strandedChip.modelData.id)
+            }
+          }
+        }
+
+        Item { Layout.fillWidth: true }
       }
     }
   }

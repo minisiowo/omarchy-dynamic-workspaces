@@ -31,14 +31,31 @@ BarWidget {
 
     var result = []
     var groups = root.service.groups
+    var stranded = root.service.strandedWorkspaces
     var visibleGroups = []
 
+    // A workspace that holds windows but that no group names sits on whichever
+    // screen Hyprland parked it on, so it is drawn with that screen. If that
+    // screen has no group at all, it goes with the last one shown, rather than
+    // being left without a chip.
+    var strandedByGroup = []
+    for (var g = 0; g < groups.length; g++) strandedByGroup.push([])
+    for (var s = 0; s < stranded.length; s++) {
+      var home = -1
+      for (var h = 0; h < groups.length; h++) {
+        if (groups[h].name === stranded[s].monitor) { home = h; break }
+      }
+      if (home < 0) home = groups.length - 1
+      if (home >= 0) strandedByGroup[home].push(stranded[s])
+    }
+
     for (var groupIndex = 0; groupIndex < groups.length; groupIndex++) {
-      if (groups[groupIndex].workspaces.length > 0) visibleGroups.push(groups[groupIndex])
+      if (groups[groupIndex].workspaces.length > 0 || strandedByGroup[groupIndex].length > 0)
+        visibleGroups.push({ group: groups[groupIndex], stranded: strandedByGroup[groupIndex] })
     }
 
     for (var visibleIndex = 0; visibleIndex < visibleGroups.length; visibleIndex++) {
-      var group = visibleGroups[visibleIndex]
+      var group = visibleGroups[visibleIndex].group
       if (visibleIndex > 0) {
         result.push({
           type: "divider",
@@ -53,7 +70,19 @@ BarWidget {
           type: "workspace",
           id: workspace.id,
           label: workspace.label,
-          monitor: group.name
+          monitor: group.name,
+          stranded: false
+        })
+      }
+
+      var extra = visibleGroups[visibleIndex].stranded
+      for (var strandedIndex = 0; strandedIndex < extra.length; strandedIndex++) {
+        result.push({
+          type: "workspace",
+          id: extra[strandedIndex].id,
+          label: String(extra[strandedIndex].id),
+          monitor: group.name,
+          stranded: true
         })
       }
     }
@@ -111,6 +140,7 @@ BarWidget {
         tooltipText: chip.isDivider
           ? ""
           : "Workspace " + chip.modelData.id + " · " + chip.modelData.monitor
+            + (chip.modelData.stranded ? " · not in this profile, returns to its own screen when it is back" : "")
         // The accent marks the workspaces that hold windows; the workspace you
         // are actually looking at keeps the bar's own foreground. That way round
         // because there is only ever one focused workspace among several

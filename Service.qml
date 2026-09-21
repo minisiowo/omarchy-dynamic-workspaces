@@ -69,6 +69,44 @@ Item {
   readonly property string activeProfileMode: activeProfile && activeProfile.match ? String(activeProfile.match.mode || "") : ""
   readonly property string activeDivider: activeProfile ? String(activeProfile.divider === undefined ? "|" : activeProfile.divider) : "|"
   readonly property var groups: buildGroups()
+
+  // Which workspaces exist and how many windows each holds, as plain values.
+  // Deliberately not part of `groups`: that model must not change with live
+  // compositor state, or every chip is rebuilt whenever a window opens.
+  readonly property var liveWorkspaces: {
+    var result = []
+    var values = Hyprland.workspaces.values
+
+    for (var i = 0; i < values.length; i++) {
+      var workspace = values[i]
+      if (!workspace) continue
+      result.push({
+        id: Number(workspace.id),
+        monitor: workspace.monitor ? String(workspace.monitor.name || "") : "",
+        windows: workspace.toplevels ? workspace.toplevels.values.length : 0
+      })
+    }
+
+    return result
+  }
+
+  // Workspaces with windows that the active profile gives to no screen, which
+  // is what an unplugged monitor leaves behind. Shown on whichever screen now
+  // holds them, so the windows stay reachable; the saved profile is untouched
+  // and they go back to their own screen when it returns.
+  //
+  // Copied into a plain property only when the answer differs. The candidate
+  // is recomputed whenever a window opens or closes anywhere, and handing the
+  // bar a fresh array each time would rebuild every chip on it.
+  property var strandedWorkspaces: []
+  readonly property var strandedCandidate: ProfileLogic.strandedWorkspaces(groups, liveWorkspaces)
+
+  function refreshStranded() {
+    if (JSON.stringify(strandedCandidate) !== JSON.stringify(strandedWorkspaces))
+      strandedWorkspaces = strandedCandidate
+  }
+
+  onStrandedCandidateChanged: refreshStranded()
   // The bar draws a divider between groups, so it needs two of them to draw one
   // at all. The panel hides the setting on the same test.
   readonly property int populatedGroupCount: {
@@ -623,6 +661,7 @@ Item {
   }
 
   Component.onCompleted: {
+    root.refreshStranded()
     ensureConfigDir.running = true
     Qt.callLater(function() { configFile.reload() })
   }

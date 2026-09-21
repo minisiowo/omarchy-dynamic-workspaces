@@ -72,6 +72,8 @@ After the first run there is nothing to do. Dock, undock, close the lid, wake th
 
 **A screen you have not saved a profile for** still gets workspaces: each unknown monitor is handed its own block of three, left to right, and its card in the panel is marked **AUTO**. Edit any of them and the whole arrangement is written into the profile, the badges disappear, and it behaves like one you saved by hand.
 
+**Unplugging a screen with windows on it** does not lose them. Hyprland keeps those workspaces and parks them on the screen that is left; the plugin shows them there, after that screen's own workspaces, and the panel lists them under **NOT IN THIS PROFILE**. Click one to switch to it. They are not written into the profile, so when the screen comes back each workspace is sent home to it, under the same number, and the focus stays where you left it.
+
 **Two identical monitors** report the same name to the system, and Hyprland cannot tell them apart, so they share one set of workspaces and their cards are marked **SHARED**.
 
 On the bar, the workspace you are looking at is drawn in the bar's own color, and the ones holding windows in your theme's accent — one bright mark among the busy ones, rather than the other way round. If color alone is not enough, the panel's **Replace** button shows a character in place of that workspace's number instead; click it again to change the character to any text, emoji, or Nerd Font glyph, and use the arrow beside it to go back to the default dot.

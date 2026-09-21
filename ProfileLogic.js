@@ -625,6 +625,38 @@ function nextWorkspaceId(profile, descriptions) {
 // own monitor events, which is the same mechanism a hand-written workspaces.lua
 // uses.
 
+// Workspaces that hold windows but that the active profile gives to no screen:
+// what a docked layout leaves behind on the laptop panel when the external
+// monitor goes away. Hyprland keeps them, the profile does not name them, so
+// without this they have no chip anywhere and the windows on them cannot be
+// reached. `live` is [{ id, monitor, windows }] read from the compositor;
+// `groups` is what the profile assigns. Empty workspaces are left out on
+// purpose - nothing is lost by not showing them.
+function strandedWorkspaces(groups, live) {
+  var assigned = {}
+  var groupList = asArray(groups)
+  for (var g = 0; g < groupList.length; g++) {
+    var ids = asArray(groupList[g] ? groupList[g].workspaces : null)
+    for (var w = 0; w < ids.length; w++) {
+      var assignedId = ids[w] !== null && typeof ids[w] === "object" ? ids[w].id : ids[w]
+      assigned[Number(assignedId)] = true
+    }
+  }
+
+  var result = []
+  var entries = asArray(live)
+  for (var i = 0; i < entries.length; i++) {
+    var entry = asObject(entries[i])
+    var id = Number(entry.id)
+    // Special workspaces carry negative ids and are not part of any layout.
+    if (!(id > 0) || !(Number(entry.windows) > 0) || assigned[id]) continue
+    result.push({ id: id, monitor: String(entry.monitor || "") })
+  }
+
+  result.sort(function(left, right) { return left.id - right.id })
+  return result
+}
+
 function luaString(value) {
   var text = String(value === undefined || value === null ? "" : value)
   var result = ""
@@ -858,6 +890,41 @@ function rulesRuntime() {
     "  return fallback.id .. \"\\31\" .. current, fallback_groups(monitors)",
     "end",
     "",
+    "-- Hyprland re-homes existing workspaces when a monitor connects, but this",
+    "-- module's rules only switch on after the debounce, so by then it has already",
+    "-- decided and a workspace that was parked on the laptop screen while its",
+    "-- monitor was away stays there. Send every workspace that exists to the screen",
+    "-- the profile gives it, and put the focus back where the user left it. Only",
+    "-- workspaces that already exist are touched: moving one that does not would",
+    "-- create it, and an empty persistent workspace is already in the right place",
+    "-- by rule. Counted loops, as everywhere here, for the placeholder `hl`.",
+    "local function home_workspaces(groups)",
+    "  local target = {}",
+    "  for _, group in ipairs(groups) do",
+    "    for _, id in ipairs(group.workspaces) do target[id] = group.monitor end",
+    "  end",
+    "",
+    "  local before = hl.get_active_workspace()",
+    "  local existing = hl.get_workspaces()",
+    "  local moved = false",
+    "",
+    "  for index = 1, #existing do",
+    "    local workspace = existing[index]",
+    "    local selector = target[workspace.id]",
+    "    local current = workspace.monitor and workspace.monitor.description or \"\"",
+    "    if selector ~= nil and selector ~= \"desc:\" .. current then",
+    "      -- The key is `workspace`; without it the dispatcher moves whichever",
+    "      -- workspace is focused, which is never what is meant here.",
+    "      pcall(hl.dispatch, hl.dsp.workspace.move({ workspace = tostring(workspace.id), monitor = selector }))",
+    "      moved = true",
+    "    end",
+    "  end",
+    "",
+    "  if moved and before ~= nil then",
+    "    pcall(hl.dispatch, hl.dsp.focus({ workspace = tostring(before.id) }))",
+    "  end",
+    "end",
+    "",
     "local function sync()",
     "  local key, groups = resolve()",
     "  if key == active_key then return end",
@@ -867,6 +934,7 @@ function rulesRuntime() {
     "  if key ~= nil then",
     "    if rules_by_key[key] == nil then rules_by_key[key] = build(groups) end",
     "    for _, rule in ipairs(rules_by_key[key]) do rule:set_enabled(true) end",
+    "    home_workspaces(groups)",
     "  end",
     "",
     "  active_key = key",
