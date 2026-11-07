@@ -266,13 +266,11 @@ assert.deepEqual(
   [25, 29])
 console.log("workspaces outside the profile: ok")
 
-// -------------------------------------------------------------------- the swap
+// -------------------------------------------------------------------- the bar
 
-// Omarchy swaps a clone and its source in the same place on the bar, and that is
-// the whole of how the two widgets stay in step, so it is worth failing loudly if
-// the manifest stops asking for it. A second entry on the bar would survive
-// disabling the plugin, so a second instance must not be possible.
+// The icon and the chips are separate bar entries, so each can be dragged on its
+// own. Declaring omarchy.clonedFrom would tie the plugin to a single entry.
 const manifest = JSON.parse(fs.readFileSync(new URL("../manifest.json", import.meta.url), "utf8"))
-assert.equal(manifest.omarchy.clonedFrom, "omarchy.workspaces")
-assert.equal(manifest.barWidget.allowMultiple, false)
-console.log("widget swap: ok")
+assert.equal(manifest.barWidget.allowMultiple, true)
+assert.equal(manifest.omarchy, undefined)
+console.log("bar entries: ok")

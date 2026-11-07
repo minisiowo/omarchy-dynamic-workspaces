@@ -11,7 +11,7 @@ does for a user; this file is the things that have bitten someone working on it.
 | --- | --- |
 | `ProfileLogic.js` | All the logic, pure and testable: profile matching, slots, labels, and the mapping onto Omarchy's blocks. `.pragma library`, so no QML types in here. |
 | `Service.qml` | One instance per shell. Owns `config.json`, reads Omarchy's block file and the focused layout, exposes IPC. |
-| `BarWidget.qml` | The one bar entry: `WorkspaceWidget` followed by `ControlWidget`. |
+| `BarWidget.qml` | Loads `ControlWidget` or `WorkspaceWidget` depending on the widget's `mode` setting. |
 | `ControlWidget.qml` | The panel: monitor cards, drag and drop, labels. |
 | `WorkspaceWidget.qml` | The chips on the bar. |
 | `tests/profile-logic.test.mjs` | Runs `ProfileLogic.js` in a `vm` context. |
@@ -59,16 +59,17 @@ focus skips `o.workspaces`, which is what reclaims a workspace an unplug left on
 another monitor. Only a guest from another block, which has no slot here, is
 focused by id.
 
-**Keep to one entry on the bar.** The swap with `omarchy.workspaces` is Omarchy's
-clone mechanism: `omarchy.clonedFrom` in the manifest makes `PluginRegistry.qml`
-replace one with the other in place, in both directions, and restore on disable.
-It handles a single entry, so a second instance survives disabling and keeps the
-plugin enabled, which is why the old Control/Workspaces modes are gone. Do not add
-a mode or `allowMultiple`, and do not reimplement the swap by editing `shell.json`.
+**The icon and the chips are separate bar entries, on purpose.** Each has to be
+draggable on its own, which is what the `mode` setting and `allowMultiple` are for.
+Do not declare `omarchy.clonedFrom`: Omarchy's clone swap would hide the stock
+widget for us, but it handles a single entry, and it was tried and taken back out.
+Switching between this and `omarchy.workspaces` is the user's to do by hand. What
+has to hold is that doing it leaves their workspaces untouched, which it does as
+long as nothing here reaches Hyprland.
 
-**The `omarchy.workspaces` IPC target is ours while we stand in.** Omarchy's layout
-toggle calls `omarchy-shell omarchy.workspaces refresh`, and with its widget off
-only `Service.qml` answers. Without that the chip keeps the old layout's icon.
+**`Service.qml` answers the `omarchy.workspaces` IPC target.** Omarchy's layout
+toggle calls `omarchy-shell omarchy.workspaces refresh`, and with its widget off the
+bar nothing else does. Without that the chip keeps the old layout's icon.
 
 **A file removed in 2.0 is only gone once.** `Service.qml` deletes a stale
 `rules.lua` and reloads Hyprland once. That block can go when 1.x is ancient
@@ -99,9 +100,6 @@ on 32. `hyprctl output remove DW-TEST` undoes it, but Omarchy remembers the bloc
 so put `~/.local/state/omarchy/monitor-workspaces` back and run `hyprctl reload
 config-only` afterwards. A headless output reports an empty description, which is
 why `Service.qml` falls back to the connector name.
-
-The swap was exercised with `omarchy plugin enable` and `disable` in every order,
-against `shell.json`, from a clean native bar.
 
 The glyph Omarchy uses for a scrolling workspace is a filled circle, which looks
 exactly like the default `●` focus mark. It is not a bug to chase.

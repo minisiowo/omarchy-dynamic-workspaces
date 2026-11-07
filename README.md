@@ -6,7 +6,7 @@ Omarchy's workspace widget, with a saved layout for each set of screens you use.
 
 Omarchy gives every monitor its own workspaces: SUPER + 3 is the third workspace of the screen you are on, and a screen gets its workspaces back when you plug it in again. What it does not do is remember anything about how you want them shown. Every bar counts the same way, on every screen, in every setup, and a workspace has a number and nothing else.
 
-This plugin takes the place of that widget and remembers, for each set of screens, what the bar should show.
+This plugin stands in for that widget and remembers, for each set of screens, what the bar should show.
 
 ```
 laptop on its own      1  2  3  4
@@ -19,7 +19,7 @@ Close the lid and the bar goes back to the first row. Open it and you get the se
 
 ## What you get
 
-The bar shows the workspaces of all your screens together, grouped by monitor with a divider between them, and the icon after them opens a small panel with a card for each screen. Choose which workspaces a screen shows and in what order, and give any of them a name, an emoji, or an icon if a number is not enough — a renamed chip keeps showing its number underneath, because that number is what your keyboard shortcuts follow.
+The bar shows the workspaces of all your screens together, grouped by monitor with a divider between them, and a separate icon, which you can put anywhere on the bar, opens a small panel with a card for each screen. Choose which workspaces a screen shows and in what order, and give any of them a name, an emoji, or an icon if a number is not enough — a renamed chip keeps showing its number underneath, because that number is what your keyboard shortcuts follow.
 
 Once a layout looks right, save it. From then on, whenever exactly those screens are connected, that layout comes back — when you dock, when you undock, when you wake the machine up.
 
@@ -35,11 +35,15 @@ Omarchy 4.5 or later: the version that gives each monitor its own block of works
 omarchy plugin add https://github.com/minisiowo/omarchy-dynamic-workspaces --enable
 ```
 
-It takes the place of `omarchy.workspaces` on the bar, in the same spot. The two are swapped by Omarchy itself, so they cannot end up side by side: enabling either one switches the other off, however you do it.
+That puts the panel icon on the bar. The workspaces are a second entry of the same plugin, set to **Widget mode** `Workspaces` in Omarchy's bar settings, and each entry can be dragged wherever you want it. If you use them, take `omarchy.workspaces` off the bar so you do not end up with two sets of indicators:
+
+```bash
+omarchy plugin disable omarchy.workspaces
+```
 
 ## First run
 
-1. **Click the icon** after the workspaces on the bar. The panel lists your connected screens.
+1. **Click the icon** on the bar. The panel lists your connected screens.
 2. **Arrange the workspaces.** Use `+` to show another one, drag a chip along its row to reorder it, click one to rename it.
 3. **Save the setup** when it looks right. It becomes a profile for exactly this set of screens.
 
@@ -65,11 +69,12 @@ omarchy bar set io.github.minisiowo.dynamic-workspaces icon "🗂️"
 
 ## Turning it off
 
+Going back to Omarchy's widget changes nothing about your workspaces, because both read the same numbers: every window stays where it is, and the keys keep working. Run this once for each entry you have on the bar, then put the original back:
+
 ```bash
 omarchy plugin disable io.github.minisiowo.dynamic-workspaces
+omarchy plugin enable omarchy.workspaces --section left
 ```
-
-Omarchy's widget comes back where this one was, and `omarchy plugin enable omarchy.workspaces` does the same thing from the other side. Enabling this plugin again swaps them back.
 
 To uninstall it altogether:
 
@@ -84,7 +89,6 @@ That leaves `~/.config/omarchy/dynamic-workspaces/` where it is, so your profile
 Version 1 assigned workspace numbers to monitors through generated Hyprland rules, and those fight the per-monitor numbering Omarchy has had since 4.5: the bar and the keyboard stopped agreeing about which workspace was which. Version 2 leaves numbering to Omarchy.
 
 - `rules.lua` removes itself the first time version 2 runs. The `pcall(dofile, ...)` line in `~/.config/hypr/hyprland.lua` then loads nothing and can be deleted.
-- The plugin is one entry on the bar now. If you had a second one for the control icon, remove it in Omarchy's bar settings.
 - Profiles carry over. The numbers in them now mean a workspace of that monitor, so a screen that listed `4 5 6` shows the workspaces SUPER + 4, 5, and 6 reach on that screen. Names stay on the monitor that listed them.
 - Chips no longer move between monitors, because every monitor has its own 1 and there is nothing to move.
 
@@ -159,10 +163,6 @@ Omarchy gives each physical monitor a block of ten workspace ids, kept in `~/.lo
 
 A profile only says what to show. That is why the plugin needs no hook in `hyprland.lua` and leaves nothing in the compositor.
 
-### How it replaces Omarchy's widget
-
-The manifest declares `omarchy.clonedFrom: "omarchy.workspaces"`, the same field `omarchy plugin clone` writes. Omarchy then swaps the two in place and restores the original on disable. It needs the plugin to be one entry on the bar, because a second one would stay behind and keep the plugin enabled, which is why the widget has no modes and `allowMultiple` is off.
-
 ### The default profile and its presets
 
 The default profile keeps an entry for every monitor you have edited under it, connected or not, which is what lets a familiar screen get its chips back the moment it is plugged in again.
@@ -207,7 +207,7 @@ node tests/profile-logic.test.mjs
 - `0.3`: opt-in Hyprland rule generation with clamshell debounce;
 - `0.4`: a default profile that assigns unrecognised monitors on its own;
 - `1.0`: hotplug switching verified against a live compositor, and the listing on omarchyplugins.com;
-- `2.0`: numbering left to Omarchy's per-monitor workspaces, no more Hyprland rules, and a clean swap with `omarchy.workspaces`.
+- `2.0`: numbering left to Omarchy's per-monitor workspaces, no more Hyprland rules, so going back and forth with `omarchy.workspaces` leaves your workspaces alone.
 
 ## License
 

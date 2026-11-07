@@ -448,8 +448,7 @@ Item {
   }
 
   // Omarchy's layout commands announce a change on this target, which belongs to
-  // its own workspace widget. That widget is off while this plugin stands in for
-  // it, so the announcement arrives here.
+  // its own workspace widget. With that widget off the bar, it arrives here.
   ShellIpc {
     target: "omarchy.workspaces"
 

@@ -1,45 +1,42 @@
 import QtQuick
-import QtQuick.Layouts
 import qs.Ui
 
-// One entry on the bar, in the place of Omarchy's own workspace widget, so that
-// Omarchy can swap the two: a second entry would survive disabling the plugin
-// and keep it enabled. See `omarchy.clonedFrom` in manifest.json.
 BarWidget {
   id: root
   moduleName: "io.github.minisiowo.dynamic-workspaces"
 
-  readonly property bool opened: control.opened === true
+  readonly property string widgetMode: String(setting("mode", "Control")).toLowerCase()
+  readonly property bool opened: widgetLoader.item && widgetLoader.item.opened === true
 
-  function open() { control.open() }
-  function close() { control.close() }
-  function togglePanel() { control.togglePanel() }
-  function closeForPopoutSwitch() { control.close() }
+  function open() { if (widgetLoader.item && typeof widgetLoader.item.open === "function") widgetLoader.item.open() }
+  function close() { if (widgetLoader.item && typeof widgetLoader.item.close === "function") widgetLoader.item.close() }
+  function togglePanel() { if (widgetLoader.item && typeof widgetLoader.item.togglePanel === "function") widgetLoader.item.togglePanel() }
+  function closeForPopoutSwitch() { close() }
 
-  implicitWidth: layout.implicitWidth
-  implicitHeight: layout.implicitHeight
+  function injectWidget() {
+    var target = widgetLoader.item
+    if (!target) return
+    if ("bar" in target) target.bar = root.bar
+    if ("settings" in target) target.settings = root.settings
+    if ("moduleName" in target) target.moduleName = root.moduleName
+    if ("hostWidget" in target) target.hostWidget = root
+  }
 
-  GridLayout {
-    id: layout
+  implicitWidth: widgetLoader.item && widgetLoader.item.visible ? widgetLoader.item.implicitWidth : 0
+  implicitHeight: widgetLoader.item && widgetLoader.item.visible ? widgetLoader.item.implicitHeight : 0
+
+  onBarChanged: injectWidget()
+  onSettingsChanged: injectWidget()
+
+  Loader {
+    id: widgetLoader
     anchors.fill: parent
-    columns: root.vertical ? 1 : 2
-    columnSpacing: 0
-    rowSpacing: 0
-
-    WorkspaceWidget {
-      bar: root.bar
-      settings: root.settings
-      Layout.preferredWidth: implicitWidth
-      Layout.preferredHeight: implicitHeight
-    }
-
-    ControlWidget {
-      id: control
-      bar: root.bar
-      settings: root.settings
-      hostWidget: root
-      Layout.preferredWidth: implicitWidth
-      Layout.preferredHeight: implicitHeight
+    source: root.widgetMode === "workspaces"
+      ? Qt.resolvedUrl("WorkspaceWidget.qml")
+      : Qt.resolvedUrl("ControlWidget.qml")
+    onLoaded: {
+      root.injectWidget()
+      Qt.callLater(root.injectWidget)
     }
   }
 }

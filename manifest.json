@@ -18,18 +18,30 @@
   },
   "barWidget": {
     "displayName": "Dynamic Workspaces",
-    "description": "Workspace indicators grouped by monitor, with a panel for profiles and names.",
+    "description": "A control icon and a grouped workspace display, selectable per widget instance, so each sits where you want it on the bar.",
     "category": "Compositor",
     "aliases": [
       "workspaces",
       "monitor-profiles"
     ],
     "defaultSection": "left",
-    "allowMultiple": false,
+    "allowMultiple": true,
     "defaults": {
+      "mode": "Control",
       "icon": "󰕰"
     },
     "schema": [
+      {
+        "key": "mode",
+        "type": "enum",
+        "label": "Widget mode",
+        "options": [
+          "Control",
+          "Workspaces"
+        ],
+        "defaultValue": "Control",
+        "description": "Control shows the panel icon. Workspaces shows the workspaces grouped by monitor."
+      },
       {
         "key": "icon",
         "type": "string",
@@ -38,8 +50,5 @@
         "description": "Any text, emoji, or Nerd Font glyph displayed on the bar."
       }
     ]
-  },
-  "omarchy": {
-    "clonedFrom": "omarchy.workspaces"
   }
 }
