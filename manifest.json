@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "io.github.minisiowo.dynamic-workspaces",
   "name": "Dynamic Workspaces",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "author": "Dominik Mikolajczyk",
   "license": "MIT",
-  "description": "Profile-aware workspace management for changing monitor setups.",
+  "description": "Omarchy's workspace widget with profiles: per-monitor workspaces, grouped, named and ordered for each monitor setup.",
   "kinds": [
     "service",
     "bar-widget"
@@ -18,30 +18,18 @@
   },
   "barWidget": {
     "displayName": "Dynamic Workspaces",
-    "description": "A control icon and a grouped workspace display, selectable per widget instance.",
+    "description": "Workspace indicators grouped by monitor, with a panel for profiles and names.",
     "category": "Compositor",
     "aliases": [
       "workspaces",
       "monitor-profiles"
     ],
     "defaultSection": "left",
-    "allowMultiple": true,
+    "allowMultiple": false,
     "defaults": {
-      "mode": "Control",
       "icon": "󰕰"
     },
     "schema": [
-      {
-        "key": "mode",
-        "type": "enum",
-        "label": "Widget mode",
-        "options": [
-          "Control",
-          "Workspaces"
-        ],
-        "defaultValue": "Control",
-        "description": "Control shows the panel icon. Workspaces renders configured groups at the existing workspace position."
-      },
       {
         "key": "icon",
         "type": "string",
@@ -50,5 +38,8 @@
         "description": "Any text, emoji, or Nerd Font glyph displayed on the bar."
       }
     ]
+  },
+  "omarchy": {
+    "clonedFrom": "omarchy.workspaces"
   }
 }

@@ -1,17 +1,17 @@
 # Working on this plugin
 
-An Omarchy (Quickshell) bar plugin that assigns workspaces to monitors per
-profile, and hands the result to Hyprland as a generated Lua module. The README
-explains what it does for a user; this file is the things that have bitten
-someone working on it.
+An Omarchy (Quickshell) bar plugin that stands in for `omarchy.workspaces` and
+remembers, per set of monitors, which workspaces each screen shows and what they
+are called. It only draws: Omarchy owns the numbering. The README explains what it
+does for a user; this file is the things that have bitten someone working on it.
 
 ## Layout
 
 | File | Role |
 | --- | --- |
-| `ProfileLogic.js` | All the logic, pure and testable: profile matching, the fallback allocation, and the Lua the plugin generates. `.pragma library`, so no QML types in here. |
-| `Service.qml` | One instance per shell. Owns `config.json`, writes `rules.lua`, reloads Hyprland, exposes IPC. |
-| `BarWidget.qml` | Loads `ControlWidget` or `WorkspaceWidget` depending on the widget's `mode` setting. |
+| `ProfileLogic.js` | All the logic, pure and testable: profile matching, slots, labels, and the mapping onto Omarchy's blocks. `.pragma library`, so no QML types in here. |
+| `Service.qml` | One instance per shell. Owns `config.json`, reads Omarchy's block file and the focused layout, exposes IPC. |
+| `BarWidget.qml` | The one bar entry: `WorkspaceWidget` followed by `ControlWidget`. |
 | `ControlWidget.qml` | The panel: monitor cards, drag and drop, labels. |
 | `WorkspaceWidget.qml` | The chips on the bar. |
 | `tests/profile-logic.test.mjs` | Runs `ProfileLogic.js` in a `vm` context. |
@@ -25,10 +25,9 @@ It asserts as it goes and prints a line per section; a failure is an uncaught
 Live state without opening the panel:
 
 ```bash
-qs ipc call io.github.minisiowo.dynamic-workspaces.service status   # active profile, monitors, groups
-qs ipc call io.github.minisiowo.dynamic-workspaces.service preview  # the rules as they would be written
+qs -p /usr/share/omarchy/shell/shell.qml ipc call io.github.minisiowo.dynamic-workspaces.service status  # profile, blocks, groups
 qs log -t 100 /run/user/1000/quickshell/by-id/*/log.qslog # add -r '*=true' for everything
-hyprctl -j workspacerules                                 # what Hyprland actually ended up with
+cat ~/.local/state/omarchy/monitor-workspaces             # which block Omarchy gave each monitor
 ```
 
 ## The plugin directory is a symlink, so hot reload does not fire
@@ -39,50 +38,53 @@ into symlinks, so **editing files here produces no "Local plugin changed"
 reload**. `qs ipc call shell rescanPlugins` is not enough either: it calls
 `Qt.clearComponentCache()`, which does not drop `.pragma library` JavaScript, so
 a changed `ProfileLogic.js` keeps running from cache. Use
-`omarchy-restart-shell` after touching it, and verify against `rules.lua` on
-disk rather than assuming the change is live.
+`omarchy-restart-shell` after touching it.
 
 ## Contracts that are easy to break
 
-**Nothing in the generated module may touch `hl` before the guard.** Tools read
-`hyprland.lua` outside the compositor with a placeholder `hl` whose every field
-answers with itself — `omarchy-menu-keybindings`, behind SUPER+K, is the one
-people press daily. Enumerating monitors against it never ends: that cost 27 GB
-of RAM and 28 GB of swap before it was fixed. Prefer counted loops over
-`ipairs()` for anything that comes back from the API.
+**Omarchy owns the workspace numbers; the plugin must never decide one.** Since
+4.5, `default/hypr/monitor-workspaces.lua` gives each physical monitor a block of
+ten ids and binds SUPER + N to slot N of the focused monitor's block, and it
+renumbers workspaces when monitors come and go. Version 1 pinned global numbers to
+monitors with generated Hyprland rules, and the two silently disagreed: on a laptop
+on block 2 the bar offered empty workspaces 1-4 that no key reached, while the
+keys and the windows were on 21-24. The tests passed and `hyprctl -j
+workspacerules` looked right, so check the keys too (`hyprctl dispatch
+'o.workspaces.focus(3)'`, which is what SUPER + 3 runs). A number in a profile is a
+slot; only `ProfileLogic.workspaceIdFor()` turns one into an id, from the block in
+Omarchy's state file. No rules, no hook, nothing under `~/.config/hypr`.
 
-**The guard must not contain the string `hl.workspace_rule`.**
-`Service.writeRules()` searches for it to tell a module that claims rules from
-one that claims nothing, and reloads Hyprland only when that answer changes. Put
-it in the guard and installing the plugin reloads the compositor for an inert
-stub.
+**Focus through `ProfileLogic.focusExpression()`, not `hl.dsp.focus`.** A plain
+focus skips `o.workspaces`, which is what reclaims a workspace an unplug left on
+another monitor. Only a guest from another block, which has no slot here, is
+focused by id.
 
-**`renderRules()` must be a pure function of the config.** Writing it reloads
-Hyprland, and `Service.writeRules()` skips that only when the text is byte-identical
-to what is on disk. That is why `rulesProfile()` sorts its assignment keys —
-reordering keys by hand must not rewrite the file.
+**Keep to one entry on the bar.** The swap with `omarchy.workspaces` is Omarchy's
+clone mechanism: `omarchy.clonedFrom` in the manifest makes `PluginRegistry.qml`
+replace one with the other in place, in both directions, and restore on disable.
+It handles a single entry, so a second instance survives disabling and keeps the
+plugin enabled, which is why the old Control/Workspaces modes are gone. Do not add
+a mode or `allowMultiple`, and do not reimplement the swap by editing `shell.json`.
+
+**The `omarchy.workspaces` IPC target is ours while we stand in.** Omarchy's layout
+toggle calls `omarchy-shell omarchy.workspaces refresh`, and with its widget off
+only `Service.qml` answers. Without that the chip keeps the old layout's icon.
+
+**A file removed in 2.0 is only gone once.** `Service.qml` deletes a stale
+`rules.lua` and reloads Hyprland once. That block can go when 1.x is ancient
+history, not before, because the file would otherwise keep fighting Omarchy through
+a hook line the plugin must not edit.
 
 **`normalizedConfig()` is the whole config schema.** It rewrites the config down
 to the keys it names, so a section it does not list is silently dropped the next
 time anything is saved. Adding a settings block means adding it there, next to
-`applySettings()` and `appearanceSettings()`, not only where it is read.
-
-**Display settings must not reach `renderRules()`.** The `appearance` block holds
-the character the bar paints on the focused workspace; if any of it leaked into
-the rendered Lua, changing that character would reload Hyprland. A test asserts
-the rendered text is unchanged by it.
+`appearanceSettings()`, not only where it is read.
 
 **Qt's clipboard is dead on the panel's surface.** Text fields there can only be
 typed into: Ctrl+V hands back nothing, which is why the rest of the Omarchy shell
 shells out to `wl-copy` / `wl-paste` too. Every field in `ControlWidget.qml` routes
 `StandardKey.Paste` through `root.pasteInto()`, which reads the clipboard with
 `wl-paste`. A new field without that handler will silently refuse to paste.
-
-**The hook line lives in three places** and they have to agree: `Service.hookLine`,
-`Service.parseHyprlandConfig()` which detects it, and the header comment
-`renderRules()` writes into `rules.lua`. The plugin never edits anything under
-`~/.config/hypr` — that line is the user's to add, so protection belongs in the
-generated file instead.
 
 **Live compositor state stays out of `Service.groups`.** Which workspace is
 focused or occupied is read straight from `Hyprland` by each delegate. Folding it
@@ -91,24 +93,18 @@ change, mid-drag included.
 
 ## Verified against a live compositor
 
-The generated module does react to monitors appearing and disappearing after
-Hyprland has parsed its configuration. Handlers registered by `hl.on()` during
-parsing survive it: adding a virtual screen with `hyprctl output create
-headless` switched the active profile to the fallback allocation after the
-debounce, and `hyprctl output remove HEADLESS-1` switched it back, each time
-leaving the superseded rules present but `enabled: false`. `hyprctl -j
-workspacerules` lists disabled rules too, so read the `enabled` field rather
-than the presence of a rule. An earlier entry here recorded this as an open
-question; it is not one.
+`hyprctl output create headless DW-TEST` is a real second monitor: Omarchy gave it
+block 3 and the bar `1 2 3 | 1 2 3`, with `o.workspaces.focus(2, "DW-TEST")` landing
+on 32. `hyprctl output remove DW-TEST` undoes it, but Omarchy remembers the block,
+so put `~/.local/state/omarchy/monitor-workspaces` back and run `hyprctl reload
+config-only` afterwards. A headless output reports an empty description, which is
+why `Service.qml` falls back to the connector name.
 
-That test also exposed a real bug, since fixed: a headless output reports an
-empty description, and `desc:` matches by prefix, so the empty selector it
-produced claimed every connected screen. `ordered_monitors()` in the generated
-module now drops screens without a description, mirroring the guard
-`rulesProfile()` already had. `tests/profile-logic.test.mjs` covers it by
-running the generated Lua under a stand-in `hl` and reading back the rules it
-built — the only place the JavaScript and Lua halves of the allocation are
-compared on the same input.
+The swap was exercised with `omarchy plugin enable` and `disable` in every order,
+against `shell.json`, from a clean native bar.
+
+The glyph Omarchy uses for a scrolling workspace is a filled circle, which looks
+exactly like the default `●` focus mark. It is not a bug to chase.
 
 (An earlier entry claimed the "+" button on a monitor card raises
 `ReferenceError: root is not defined` because inline components cannot see ids

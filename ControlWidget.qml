@@ -6,18 +6,24 @@ import Quickshell.Hyprland
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
+import "ProfileLogic.js" as ProfileLogic
 
 BarWidget {
   id: root
   moduleName: "io.github.minisiowo.dynamic-workspaces"
 
   property bool popupOpen: false
+  // The chip being renamed: its real id, and the monitor and slot that name it in
+  // the profile.
   property int selectedWorkspaceId: 0
+  property string selectedMonitor: ""
+  property int selectedSlot: 0
+  property string selectedNumber: ""
   property var hostWidget: null
 
-  // Live drop target while a chip is being dragged. `dropMonitor` is the
-  // monitor description under the cursor, `dropIndex` the insertion slot
-  // inside that monitor's chip row. Both are cleared when the drag ends.
+  // Live drop target while a chip is being dragged along its row. `dropMonitor`
+  // is the monitor it belongs to, `dropIndex` the insertion point in that row.
+  // Both are cleared when the drag ends.
   property string dropMonitor: ""
   property int dropIndex: -1
 
@@ -44,31 +50,6 @@ BarWidget {
   readonly property bool onFocusedMonitor: Hyprland.focusedMonitor === null
     || root.screenName === ""
     || root.screenName === String(Hyprland.focusedMonitor.name)
-
-  readonly property bool applyNeedsHook: root.service
-    && root.service.applyEnabled === true
-    && root.service.hookInstalled !== true
-  readonly property bool applyStatusUrgent: (root.service && root.service.applyError !== "") || applyNeedsHook
-  // The absolute path is long enough to wrap onto a second line and turn the
-  // status into a paragraph, so it is shown the way a shell would write it.
-  readonly property string rulesPathShort: {
-    if (!root.service) return ""
-    var path = String(root.service.rulesPath)
-    var home = String(root.service.home)
-    return home !== "" && path.indexOf(home) === 0 ? "~" + path.slice(home.length) : path
-  }
-
-  // The switch's own row states what applying does, so this line adds only what
-  // the switch cannot: failures, the missing hook, and when it last ran.
-  readonly property string applyStatusText: {
-    if (!root.service) return ""
-    if (root.service.applyError !== "") return "Hyprland error: " + root.service.applyError
-    if (!root.service.applyEnabled) return ""
-    if (!root.service.hookInstalled) return "Rules are written, but your Hyprland config does not load them yet."
-    var at = Number(root.service.appliedAt)
-    if (!isFinite(at) || at <= 0) return "Applied through " + root.rulesPathShort
-    return "Applied " + Qt.formatDateTime(new Date(at), "HH:mm:ss") + " through " + root.rulesPathShort
-  }
 
   function open() { popupOpen = true }
   function close() { popupOpen = false }
@@ -109,15 +90,14 @@ BarWidget {
     for (var g = 0; g < groups.length; g++) {
       var workspaces = groups[g].workspaces
       for (var w = 0; w < workspaces.length; w++) {
-        if (Number(workspaces[w].id) === id) return String(workspaces[w].label) !== String(id)
+        if (Number(workspaces[w].id) === id) return String(workspaces[w].label) !== String(workspaces[w].number)
       }
     }
     return false
   }
 
-  // Workspaces holding windows that the active profile gives to no screen, on
-  // the given monitor: what an unplugged screen leaves behind. Listed so the
-  // windows on them can still be reached; they are not part of the profile.
+  // Workspaces this monitor is showing or holding that the profile does not list
+  // for it, so what is on them can still be reached.
   function strandedOn(monitorName) {
     if (!root.service) return []
     var all = root.service.strandedWorkspaces
@@ -128,9 +108,8 @@ BarWidget {
     return result
   }
 
-  function focusWorkspace(id) {
-    if (!root.bar) return
-    root.bar.run("hyprctl dispatch " + Util.shellQuote("hl.dsp.focus({ workspace = \"" + id + "\" })"))
+  function focusWorkspace(workspace) {
+    if (root.bar) root.bar.run("hyprctl dispatch " + Util.shellQuote(ProfileLogic.focusExpression(workspace)))
   }
 
   function workspaceOccupied(id) {
@@ -154,9 +133,12 @@ BarWidget {
     return 0
   }
 
-  function selectWorkspace(workspace) {
+  function selectWorkspace(workspace, monitorDescription) {
     selectedWorkspaceId = Number(workspace.id)
-    labelEditor.text = String(workspace.label || workspace.id)
+    selectedMonitor = monitorDescription
+    selectedSlot = Number(workspace.slot)
+    selectedNumber = String(workspace.number)
+    labelEditor.text = String(workspace.label || workspace.number)
     labelEditor.forceActiveFocus()
     labelEditor.selectAll()
   }
@@ -166,15 +148,21 @@ BarWidget {
     dropIndex = -1
   }
 
-  function markDropTarget(monitorDescription, index) {
+  // Chips only move along their own row: every monitor has its own slot 1, so
+  // there is no such thing as the same workspace on another screen.
+  function markDropTarget(source, monitorDescription, index) {
+    if (!source || source.monitorDescription !== monitorDescription) {
+      clearDropTarget()
+      return
+    }
     dropMonitor = monitorDescription
     dropIndex = index
   }
 
   function commitDrop(source, monitorDescription, index) {
     root.clearDropTarget()
-    if (!root.service || !source || !source.workspaceId) return false
-    root.service.moveWorkspaceAt(source.workspaceId, monitorDescription, index)
+    if (!root.service || !source || source.monitorDescription !== monitorDescription) return false
+    root.service.moveSlot(monitorDescription, source.workspaceSlot, index)
     return true
   }
 
@@ -324,108 +312,6 @@ BarWidget {
 
           PanelSeparator { foreground: root.panelForeground }
 
-          // Applying is a setting with a state and a consequence, not a title-bar
-          // affordance, so it gets a section of its own rather than a third
-          // element competing with the title and the SAVED pill in the hero.
-          // Its status and the missing-hook hint live here too, next to the
-          // switch they describe.
-          Column {
-            width: parent.width
-            spacing: Style.spacing.labelGap
-
-            PanelSectionHeader {
-              text: "APPLY TO HYPRLAND"
-              foreground: root.panelForeground
-              fontFamily: root.panelFont
-            }
-
-            RowLayout {
-              width: parent.width
-              spacing: Style.spacing.controlGap
-
-              ToggleSwitch {
-                id: applySwitch
-                Layout.alignment: Qt.AlignVCenter
-                checked: root.service ? root.service.applyEnabled === true : false
-                foreground: root.panelForeground
-                onToggled: if (root.service) root.service.setApply(!root.service.applyEnabled)
-
-                PanelToolTip {
-                  visible: applySwitch.containsMouse
-                  text: root.service && root.service.applyEnabled
-                    ? "Stop applying workspace assignments"
-                    : "Apply workspace assignments to Hyprland"
-                  fontFamily: root.panelFont
-                }
-              }
-
-              Text {
-                Layout.fillWidth: true
-                Layout.alignment: Qt.AlignVCenter
-                text: root.service && root.service.applyEnabled
-                  ? "Hyprland follows this profile."
-                  : "Hyprland keeps the workspace rules from your own config."
-                color: root.panelForeground
-                wrapMode: Text.WordWrap
-                font.family: root.panelFont
-                font.pixelSize: Style.font.bodySmall
-              }
-            }
-
-            Text {
-              width: parent.width
-              visible: text !== ""
-              text: root.applyStatusText
-              color: root.applyStatusUrgent ? (root.bar ? root.bar.urgent : Color.urgent) : root.panelDim
-              wrapMode: Text.WordWrap
-              font.family: root.panelFont
-              font.pixelSize: Style.font.caption
-            }
-
-            // Hyprland runs the generated module only once the user's own config
-            // loads it. The plugin will not edit ~/.config/hypr itself, so the
-            // missing line is shown here to be copied.
-            Rectangle {
-              width: parent.width
-              visible: root.applyNeedsHook
-              implicitHeight: hookText.implicitHeight + Style.space(20)
-              color: Qt.rgba(root.panelForeground.r, root.panelForeground.g, root.panelForeground.b, 0.05)
-              radius: Style.cornerRadius
-
-              Column {
-                id: hookText
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.top: parent.top
-                anchors.margins: Style.space(10)
-                spacing: Style.spacing.labelGap
-
-                Text {
-                  width: parent.width
-                  text: "Add this line to ~/.config/hypr/hyprland.lua:"
-                  color: root.panelForeground
-                  wrapMode: Text.WordWrap
-                  font.family: root.panelFont
-                  font.pixelSize: Style.font.caption
-                }
-
-                TextEdit {
-                  width: parent.width
-                  text: root.service ? root.service.hookLine : ""
-                  color: Color.accent
-                  readOnly: true
-                  selectByMouse: true
-                  wrapMode: Text.WrapAnywhere
-                  selectionColor: Style.selectionFillFor(root.panelForeground, Color.accent)
-                  font.family: root.panelFont
-                  font.pixelSize: Style.font.caption
-                }
-              }
-            }
-          }
-
-          PanelSeparator { foreground: root.panelForeground }
-
           Column {
             width: parent.width
             spacing: Style.space(8)
@@ -463,7 +349,7 @@ BarWidget {
             visible: root.selectedWorkspaceId > 0
 
             PanelSectionHeader {
-              text: "WORKSPACE " + root.selectedWorkspaceId
+              text: "WORKSPACE " + root.selectedNumber
               foreground: root.panelForeground
               fontFamily: root.panelFont
             }
@@ -495,7 +381,7 @@ BarWidget {
                 bordered: true
                 foreground: root.panelForeground
                 fontFamily: root.panelFont
-                onClicked: if (root.service) root.service.setWorkspaceLabel(root.selectedWorkspaceId, labelEditor.text)
+                onClicked: if (root.service) root.service.setWorkspaceLabel(root.selectedMonitor, root.selectedSlot, labelEditor.text)
               }
 
               PanelActionButton {
@@ -507,20 +393,20 @@ BarWidget {
                 hoverColor: Color.accent
                 fontFamily: root.panelFont
                 onClicked: {
-                  if (root.service) root.service.setWorkspaceLabel(root.selectedWorkspaceId, "")
-                  labelEditor.text = String(root.selectedWorkspaceId)
+                  if (root.service) root.service.setWorkspaceLabel(root.selectedMonitor, root.selectedSlot, "")
+                  labelEditor.text = root.selectedNumber
                 }
               }
 
               PanelActionButton {
                 Layout.alignment: Qt.AlignVCenter
                 iconText: "󰆴"
-                tooltipText: "Remove from this profile"
+                tooltipText: "Stop showing this one in this profile"
                 foreground: root.panelForeground
                 hoverColor: root.bar ? root.bar.urgent : Color.urgent
                 fontFamily: root.panelFont
                 onClicked: {
-                  if (root.service) root.service.removeWorkspace(root.selectedWorkspaceId)
+                  if (root.service) root.service.removeSlot(root.selectedMonitor, root.selectedSlot)
                   root.selectedWorkspaceId = 0
                   labelEditor.text = ""
                 }
@@ -531,10 +417,7 @@ BarWidget {
               width: parent.width
               // The lesson of a workspace named "4" that nothing on the keyboard
               // reaches: the name is decoration, the number is the address.
-              text: "Keyboard shortcuts follow the workspace number, not the name shown here."
-                + (root.selectedWorkspaceId === 10
-                  ? " Omarchy binds workspace 10 to SUPER + 0."
-                  : "")
+              text: "SUPER + " + root.selectedNumber + " reaches this workspace while its monitor has the focus, whatever it is named here."
               color: root.panelDim
               wrapMode: Text.WordWrap
               font.family: root.panelFont
@@ -730,7 +613,7 @@ BarWidget {
 
             Text {
               width: parent.width
-              text: "The workspace you are looking at is drawn in the bar's own color, the ones holding windows in the accent. Replace shows a character in place of its number instead — click it again to change the character to any text, emoji, or Nerd Font glyph."
+              text: "The workspace you are looking at is drawn in the bar's own color, the ones holding windows in the accent. Replace shows a character in place of its number instead — click it again to change the character to any text, emoji, or Nerd Font glyph. A workspace that scrolls or floats shows that layout's icon either way, and clicking the one you are on changes its layout."
               color: root.panelDim
               wrapMode: Text.WordWrap
               font.family: root.panelFont
@@ -742,7 +625,7 @@ BarWidget {
 
           Text {
             width: parent.width
-            text: "Drag a chip to reorder it or move it to another monitor. Click a chip to rename it."
+            text: "Drag a chip along its row to reorder it. Click a chip to rename it."
             color: root.panelDim
             wrapMode: Text.WordWrap
             font.family: root.panelFont
@@ -923,7 +806,7 @@ BarWidget {
                 Layout.alignment: Qt.AlignVCenter
                 text: "Add preset"
                 bordered: true
-                tooltipText: "Pre-assigns workspaces to a monitor by description, before it is ever connected."
+                tooltipText: "Chooses which workspaces a monitor shows, by description, before it is ever connected."
                 foreground: root.panelForeground
                 fontFamily: root.panelFont
                 onClicked: {
@@ -971,9 +854,8 @@ BarWidget {
     // Nothing in the config assigns this monitor: the default profile handed it
     // a block of workspaces so the bar is never empty on an unfamiliar screen.
     readonly property bool automatic: card.group.automatic === true
-    // Another connected screen reports the same EDID description. Assignments
-    // and Hyprland's `desc:` selector are both keyed by it, so the two cannot
-    // be given different workspaces.
+    // Another connected screen reports the same EDID description. Profiles are
+    // keyed by it, so the two show the same chips, each in its own block.
     readonly property bool shared: card.group.shared === true
     // A renamed workspace prints its number under its chip. The whole row
     // reserves that line, not just the renamed chips, or the squares would end
@@ -981,7 +863,7 @@ BarWidget {
     readonly property bool anyRenamed: {
       var workspaces = card.group.workspaces
       for (var i = 0; i < workspaces.length; i++) {
-        if (String(workspaces[i].label) !== String(workspaces[i].id)) return true
+        if (String(workspaces[i].label) !== String(workspaces[i].number)) return true
       }
       return false
     }
@@ -1035,7 +917,7 @@ BarWidget {
 
           PanelToolTip {
             visible: automaticHover.hovered
-            text: "Assigned automatically because no profile names this monitor. Editing it here pins the whole layout."
+            text: "Shown automatically because no profile names this monitor. Editing it here saves the whole layout."
             fontFamily: root.panelFont
           }
         }
@@ -1062,7 +944,7 @@ BarWidget {
 
           PanelToolTip {
             visible: sharedHover.hovered
-            text: "Another connected screen reports the same description, and Hyprland cannot tell them apart. They share one set of workspaces."
+            text: "Another connected screen reports the same description, so a profile cannot tell them apart. Both show this row, each with workspaces of its own."
             fontFamily: root.panelFont
           }
         }
@@ -1080,15 +962,20 @@ BarWidget {
         PanelActionButton {
           Layout.alignment: Qt.AlignVCenter
           iconText: "+"
-          tooltipText: "Add the next free workspace to this monitor"
+          tooltipText: "Show the next workspace of this monitor"
           foreground: root.panelForeground
           fontFamily: root.panelFont
           onClicked: {
             if (!root.service) return
-            var workspaceId = root.service.addWorkspace(card.description)
-            if (workspaceId > 0) {
-              root.selectedWorkspaceId = workspaceId
-              labelEditor.text = String(workspaceId)
+            var slot = root.service.addSlot(card.description)
+            if (slot > 0) {
+              var number = ProfileLogic.slotNumber(slot)
+              root.selectWorkspace({
+                id: ProfileLogic.workspaceIdFor(card.group.block, slot),
+                slot: slot,
+                number: number,
+                label: number
+              }, card.description)
             }
           }
         }
@@ -1111,7 +998,8 @@ BarWidget {
             // A name of its own hides which workspace this actually is, and the
             // number is the part that matters outside this panel: the keyboard
             // shortcuts follow it, not the name. So a renamed chip carries both.
-            readonly property bool renamed: String(chipCell.modelData.label) !== String(chipCell.workspaceId)
+            readonly property string number: String(chipCell.modelData.number)
+            readonly property bool renamed: String(chipCell.modelData.label) !== chipCell.number
             readonly property bool selected: root.selectedWorkspaceId === chipCell.workspaceId
             // Live compositor state, read here rather than carried in the
             // service's model: folding it into the model would rebuild every
@@ -1158,6 +1046,7 @@ BarWidget {
               anchors.fill: parent
               onPositionChanged: function(drag) {
                 root.markDropTarget(
+                  drag.source,
                   card.description,
                   drag.x > width / 2 ? chipCell.index + 1 : chipCell.index)
               }
@@ -1170,7 +1059,8 @@ BarWidget {
 
             Rectangle {
               id: chip
-              property int workspaceId: chipCell.workspaceId
+              readonly property int workspaceSlot: Number(chipCell.modelData.slot)
+              readonly property string monitorDescription: card.description
 
               width: chipCell.width
               // The square keeps its own size; the cell may be taller to leave
@@ -1210,7 +1100,7 @@ BarWidget {
                 visible: chipCell.renamed
                 x: (parent.width - width) / 2
                 y: parent.height + Style.space(2)
-                text: String(chipCell.workspaceId)
+                text: chipCell.number
                 color: root.panelDim
                 font.family: root.panelFont
                 font.pixelSize: Style.font.caption
@@ -1220,7 +1110,7 @@ BarWidget {
 
               PanelToolTip {
                 visible: chipHover.hovered && chipCell.renamed
-                text: "Workspace " + chipCell.workspaceId + " \u2014 shown as \"" + chipCell.modelData.label + "\""
+                text: "Workspace " + chipCell.number + " \u2014 shown as \"" + chipCell.modelData.label + "\""
                 fontFamily: root.panelFont
               }
 
@@ -1230,7 +1120,7 @@ BarWidget {
                 cursorShape: drag.active ? Qt.ClosedHandCursor : Qt.OpenHandCursor
                 drag.target: chip
                 drag.axis: Drag.XAndYAxis
-                onClicked: root.selectWorkspace(chipCell.modelData)
+                onClicked: root.selectWorkspace(chipCell.modelData, card.description)
                 onReleased: {
                   chip.Drag.drop()
                   chip.x = 0
@@ -1264,7 +1154,7 @@ BarWidget {
             anchors.leftMargin: card.workspaceCount === 0 ? 0 : Style.space(6)
             anchors.verticalCenter: parent.verticalCenter
             visible: card.workspaceCount === 0
-            text: "Drop a workspace here or press +"
+            text: "Press + to show a workspace here"
             color: root.panelDim
             font.family: root.panelFont
             font.pixelSize: Style.font.caption
@@ -1272,7 +1162,7 @@ BarWidget {
 
           DropArea {
             anchors.fill: parent
-            onPositionChanged: root.markDropTarget(card.description, card.workspaceCount)
+            onPositionChanged: function(drag) { root.markDropTarget(drag.source, card.description, card.workspaceCount) }
             onExited: if (card.dropActive && root.dropIndex === card.workspaceCount) root.clearDropTarget()
             onDropped: function(drop) {
               if (root.commitDrop(drop.source, card.description, card.workspaceCount)) drop.acceptProposedAction()
@@ -1290,7 +1180,7 @@ BarWidget {
 
         Text {
           Layout.alignment: Qt.AlignVCenter
-          text: "NOT IN THIS PROFILE"
+          text: "ALSO HERE"
           color: root.panelDim
           font.family: root.panelFont
           font.pixelSize: Style.font.caption
@@ -1314,7 +1204,7 @@ BarWidget {
             Text {
               id: strandedLabel
               anchors.centerIn: parent
-              text: String(strandedChip.modelData.id)
+              text: String(strandedChip.modelData.number)
               color: root.panelForeground
               font.family: root.panelFont
               font.pixelSize: Style.font.body
@@ -1324,14 +1214,14 @@ BarWidget {
 
             PanelToolTip {
               visible: strandedHover.hovered
-              text: "Workspace " + strandedChip.modelData.id + " has windows but this profile does not assign it. Click to switch to it; it returns to its own screen when that screen is back."
+              text: "Workspace " + strandedChip.modelData.number + " is on this monitor but this profile does not list it. Click to switch to it."
               fontFamily: root.panelFont
             }
 
             MouseArea {
               anchors.fill: parent
               cursorShape: Qt.PointingHandCursor
-              onClicked: root.focusWorkspace(strandedChip.modelData.id)
+              onClicked: root.focusWorkspace(strandedChip.modelData)
             }
           }
         }

@@ -3,6 +3,7 @@ import QtQuick.Layouts
 import Quickshell.Hyprland
 import qs.Commons
 import qs.Ui
+import "ProfileLogic.js" as ProfileLogic
 
 BarWidget {
   id: root
@@ -17,6 +18,22 @@ BarWidget {
   // none. Kept in the plugin's config rather than in the widget's bar settings,
   // so both bars agree and it is set in the same panel as everything else.
   readonly property string focusMark: root.service ? String(root.service.focusMark) : ""
+
+  // The layout of the workspace with the keyboard, the way Omarchy's own bar
+  // shows it: a square tiles, a circle scrolls, a triangle floats. Tiling is what
+  // most workspaces do, so the focus mark stands in for it, but anything else
+  // always shows, because a floating workspace you cannot see is a floating
+  // workspace you cannot explain.
+  function layoutGlyph(layout) {
+    if (layout === "scrolling") return "󰝥"
+    if (layout === "floating") return "󰔶"
+    return ""
+  }
+
+  readonly property string focusText: {
+    var glyph = root.service ? root.layoutGlyph(root.service.focusedLayout) : ""
+    return glyph !== "" ? glyph : root.focusMark
+  }
 
   function liveWorkspaceById(id) {
     var values = Hyprland.workspaces.values
@@ -34,10 +51,9 @@ BarWidget {
     var stranded = root.service.strandedWorkspaces
     var visibleGroups = []
 
-    // A workspace that holds windows but that no group names sits on whichever
-    // screen Hyprland parked it on, so it is drawn with that screen. If that
-    // screen has no group at all, it goes with the last one shown, rather than
-    // being left without a chip.
+    // A workspace the group does not list is drawn with the screen that holds it.
+    // If that screen has no group at all, it goes with the last one shown, rather
+    // than being left without a chip.
     var strandedByGroup = []
     for (var g = 0; g < groups.length; g++) strandedByGroup.push([])
     for (var s = 0; s < stranded.length; s++) {
@@ -69,6 +85,7 @@ BarWidget {
         result.push({
           type: "workspace",
           id: workspace.id,
+          slot: workspace.slot,
           label: workspace.label,
           monitor: group.name,
           stranded: false
@@ -80,7 +97,8 @@ BarWidget {
         result.push({
           type: "workspace",
           id: extra[strandedIndex].id,
-          label: String(extra[strandedIndex].id),
+          slot: extra[strandedIndex].slot,
+          label: extra[strandedIndex].number,
           monitor: group.name,
           stranded: true
         })
@@ -90,9 +108,40 @@ BarWidget {
     return result
   }
 
-  function focusWorkspace(id) {
-    if (!root.bar) return
-    root.bar.run("hyprctl dispatch " + Util.shellQuote("hl.dsp.focus({ workspace = \"" + id + "\" })"))
+  function focusWorkspace(workspace) {
+    if (root.bar) root.bar.run("hyprctl dispatch " + Util.shellQuote(ProfileLogic.focusExpression(workspace)))
+  }
+
+  function activeWorkspaceOn(monitorName) {
+    var values = Hyprland.monitors.values
+    for (var i = 0; i < values.length; i++) {
+      if (values[i] && String(values[i].name) === monitorName)
+        return values[i].activeWorkspace ? Number(values[i].activeWorkspace.id) : -1
+    }
+    return -1
+  }
+
+  // A wheel notch moves one chip along the row of the monitor it is over, and a
+  // touchpad adds up its smaller deltas until they make a notch's worth.
+  property real wheelAccumulator: 0
+
+  function scrollWorkspaces(monitorName, delta) {
+    var wheel = Util.wheelSteps(root.wheelAccumulator, delta)
+    root.wheelAccumulator = wheel.remainder
+    if (wheel.steps === 0) return
+
+    var row = root.items.filter(function(item) { return item.type === "workspace" && item.monitor === monitorName })
+    var active = root.activeWorkspaceOn(monitorName)
+    var index = -1
+    for (var i = 0; i < row.length; i++) {
+      if (row[i].id === active) index = i
+    }
+    if (index === -1) return
+
+    // Holds at either end rather than wrapping, so a touchpad swipe that runs
+    // long stops on the last workspace.
+    var target = row[Util.clamp(index - wheel.steps, 0, row.length - 1)]
+    if (target !== row[index]) root.focusWorkspace(target)
   }
 
   implicitWidth: grid.implicitWidth + trailingGap
@@ -128,19 +177,18 @@ BarWidget {
 
         // Every chip reserves room for the mark, focused or not, so the bar does
         // not reflow as the focus moves from one workspace to the next.
-        readonly property real slotWidth: root.focusMark === ""
+        readonly property real slotWidth: root.focusText === ""
           ? labelMetrics.width
           : Math.max(labelMetrics.width, markMetrics.width)
 
         bar: root.bar
-        text: chip.chipFocused && root.focusMark !== ""
-          ? root.focusMark
+        text: chip.chipFocused && root.focusText !== ""
+          ? root.focusText
           : chip.modelData.label
         labelVisible: !chip.isDivider
         tooltipText: chip.isDivider
           ? ""
-          : "Workspace " + chip.modelData.id + " · " + chip.modelData.monitor
-            + (chip.modelData.stranded ? " · not in this profile, returns to its own screen when it is back" : "")
+          : "Workspace " + chip.modelData.label + " · " + chip.modelData.monitor
         // The accent marks the workspaces that hold windows; the workspace you
         // are actually looking at keeps the bar's own foreground. That way round
         // because there is only ever one focused workspace among several
@@ -183,7 +231,7 @@ BarWidget {
           id: markMetrics
           font.family: chip.fontFamily
           font.pixelSize: chip.fontSize
-          text: root.focusMark
+          text: root.focusText
         }
 
         DividerGlyph {
@@ -196,8 +244,14 @@ BarWidget {
           color: chip.foreground
         }
 
+        // As on Omarchy's own bar, clicking where you already are changes the layout.
         onPressed: function() {
-          if (!chip.isDivider) root.focusWorkspace(chip.modelData.id)
+          if (chip.isDivider) return
+          if (chip.chipFocused) root.bar.run("omarchy-hyprland-workspace-layout-toggle")
+          else root.focusWorkspace(chip.modelData)
+        }
+        onWheelMoved: function(delta) {
+          if (!chip.isDivider) root.scrollWorkspaces(chip.modelData.monitor, delta)
         }
       }
     }

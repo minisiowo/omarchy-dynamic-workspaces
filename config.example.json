@@ -1,10 +1,5 @@
 {
   "version": 1,
-  "apply": {
-    "enabled": false,
-    "persistent": true,
-    "debounceMs": 1200
-  },
   "appearance": {
     "focusMark": ""
   },
@@ -26,14 +21,17 @@
           3
         ],
         "Example External Monitor B": [
-          4,
-          5,
-          6
+          1,
+          2
         ]
       },
       "labels": {
-        "1": "💻",
-        "4": "🌐"
+        "Example External Monitor A": {
+          "1": "💻"
+        },
+        "Example External Monitor B": {
+          "1": "🌐"
+        }
       },
       "divider": "|"
     },
