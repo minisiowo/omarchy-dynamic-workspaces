@@ -573,7 +573,9 @@ BarWidget {
             visible: profilesToggle.expanded
 
             Column {
-              width: parent.width
+              anchors.left: parent.left
+              anchors.leftMargin: profilesToggle.labelInset
+              anchors.right: parent.right
               spacing: Style.spacing.labelGap
               visible: root.service && root.service.activeProfileMode !== "exact"
 
@@ -627,7 +629,9 @@ BarWidget {
               Column {
                 id: profileRow
                 required property var modelData
-                width: parent.width
+                anchors.left: parent.left
+                anchors.leftMargin: profilesToggle.labelInset
+                anchors.right: parent.right
                 spacing: Style.spacing.labelGap
 
                 readonly property bool isActive: root.service && root.service.activeProfileId === modelData.id
@@ -706,9 +710,10 @@ BarWidget {
             }
 
             Column {
-              width: parent.width
+              anchors.left: parent.left
+              anchors.leftMargin: presetsToggle.labelInset
+              anchors.right: parent.right
               spacing: Style.space(8)
-
               visible: presetsToggle.expanded
 
               Column {
@@ -811,6 +816,7 @@ BarWidget {
   component DisclosureButton: Button {
     id: disclosure
     property bool expanded: false
+    readonly property real labelInset: horizontalPadding + Style.normalBorderWidth
 
     width: parent.width
     horizontalPadding: Style.spacing.controlGap
