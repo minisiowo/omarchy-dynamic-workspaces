@@ -20,6 +20,7 @@ BarWidget {
   property int selectedSlot: 0
   property string selectedNumber: ""
   property var hostWidget: null
+  property string expandedProfileId: ""
 
   // Live drop target while a chip is being dragged along its row. `dropMonitor`
   // is the monitor it belongs to, `dropIndex` the insertion point in that row.
@@ -169,7 +170,16 @@ BarWidget {
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
-  onPopupOpenChanged: if (!popupOpen) clearDropTarget()
+  onPopupOpenChanged: if (!popupOpen) {
+    clearDropTarget()
+    appearanceToggle.expanded = false
+    profilesToggle.expanded = false
+  }
+
+  Timer {
+    id: savedFeedback
+    interval: 2000
+  }
 
   // The panel's IPC lives on the service, which is a single object per shell.
   // A bar widget exists per monitor, so each one only acts when it is the one
@@ -236,14 +246,15 @@ BarWidget {
           PanelHero {
             width: parent.width
             title: "Dynamic Workspaces"
-            meta: root.service ? root.service.activeProfileName : "Loading…"
-            detail: root.service && root.service.activeProfileMode === "exact" ? "SAVED" : ""
+            meta: root.service ? "Profile: " + root.service.activeProfileName : "Loading…"
+            detail: savedFeedback.running ? "SAVED" : ""
             foreground: root.panelForeground
             fontFamily: root.panelFont
 
             iconComponent: Component {
               Text {
-                text: root.configuredIcon
+                textFormat: Text.PlainText
+              text: root.configuredIcon
                 color: root.panelForeground
                 font.family: root.panelFont
                 font.pixelSize: Style.font.display
@@ -254,6 +265,7 @@ BarWidget {
           Text {
             width: parent.width
             visible: root.service && root.service.configError !== ""
+            textFormat: Text.PlainText
             text: "Config error: " + (root.service ? root.service.configError : "")
             color: root.bar ? root.bar.urgent : Color.urgent
             wrapMode: Text.WordWrap
@@ -261,80 +273,15 @@ BarWidget {
             font.pixelSize: Style.font.caption
           }
 
-          // Unsaved monitor set: the fallback profile is in use, so offer to
-          // capture the current layout as a named exact profile.
-          Column {
-            width: parent.width
-            spacing: Style.spacing.labelGap
-            visible: root.service && root.service.activeProfileMode !== "exact"
-
-            PanelSectionHeader {
-              text: "THIS MONITOR SET IS NOT SAVED"
-              foreground: root.panelForeground
-              fontFamily: root.panelFont
-            }
-
-            RowLayout {
-              width: parent.width
-              spacing: Style.spacing.controlGap
-
-              TextField {
-                id: profileNameEditor
-                Layout.fillWidth: true
-                Layout.alignment: Qt.AlignVCenter
-                placeholderText: "Profile name for this monitor setup"
-                text: "My monitor setup"
-                foreground: root.panelForeground
-                accent: Color.accent
-                onAccepted: saveSetupButton.clicked()
-                Keys.onPressed: function(event) {
-                  if (event.matches(StandardKey.Paste)) {
-                    root.pasteInto(profileNameEditor)
-                    event.accepted = true
-                  }
-                }
-              }
-
-              Button {
-                id: saveSetupButton
-                Layout.alignment: Qt.AlignVCenter
-                text: "Save setup"
-                bordered: true
-                foreground: root.panelForeground
-                fontFamily: root.panelFont
-                onClicked: {
-                  if (root.service && root.service.saveCurrentSetup(profileNameEditor.text))
-                    profileNameEditor.text = "My monitor setup"
-                }
-              }
-            }
-          }
-
           PanelSeparator { foreground: root.panelForeground }
 
-          Column {
-            width: parent.width
-            spacing: Style.space(8)
+          Repeater {
+            model: root.service ? root.service.groups : []
 
-            PanelSectionHeader {
-              text: "MONITORS"
-              foreground: root.panelForeground
-              fontFamily: root.panelFont
-            }
-
-            Column {
+            MonitorCard {
+              required property var modelData
               width: parent.width
-              spacing: Style.space(8)
-
-              Repeater {
-                model: root.service ? root.service.groups : []
-
-                MonitorCard {
-                  required property var modelData
-                  width: parent.width
-                  group: modelData
-                }
-              }
+              group: modelData
             }
           }
 
@@ -415,73 +362,7 @@ BarWidget {
 
             Text {
               width: parent.width
-              // The lesson of a workspace named "4" that nothing on the keyboard
-              // reaches: the name is decoration, the number is the address.
-              text: "SUPER + " + root.selectedNumber + " reaches this workspace while its monitor has the focus, whatever it is named here."
-              color: root.panelDim
-              wrapMode: Text.WordWrap
-              font.family: root.panelFont
-              font.pixelSize: Style.font.caption
-            }
-          }
-
-          // The bar only draws a divider between two groups, so with a single
-          // screen there is nothing for this to divide.
-          PanelSeparator {
-            foreground: root.panelForeground
-            visible: dividerSection.visible
-          }
-
-          Column {
-            id: dividerSection
-            width: parent.width
-            spacing: Style.spacing.labelGap
-            visible: root.service && root.service.populatedGroupCount > 1
-
-            PanelSectionHeader {
-              text: "DIVIDER"
-              foreground: root.panelForeground
-              fontFamily: root.panelFont
-            }
-
-            RowLayout {
-              width: parent.width
-              spacing: Style.spacing.controlGap
-
-              TextField {
-                id: dividerEditor
-                Layout.preferredWidth: Style.space(90)
-                Layout.alignment: Qt.AlignVCenter
-                text: root.service ? root.service.activeDivider : "|"
-                placeholderText: "|"
-                horizontalAlignment: Text.AlignHCenter
-                foreground: root.panelForeground
-                accent: Color.accent
-                onAccepted: saveDividerButton.clicked()
-                Keys.onPressed: function(event) {
-                  if (event.matches(StandardKey.Paste)) {
-                    root.pasteInto(dividerEditor)
-                    event.accepted = true
-                  }
-                }
-              }
-
-              Button {
-                id: saveDividerButton
-                Layout.alignment: Qt.AlignVCenter
-                text: "Save"
-                bordered: true
-                foreground: root.panelForeground
-                fontFamily: root.panelFont
-                onClicked: if (root.service) root.service.setDivider(dividerEditor.text)
-              }
-
-              Item { Layout.fillWidth: true }
-            }
-
-            Text {
-              width: parent.width
-              text: "Shown between monitor groups on the bar."
+              text: "Shortcut on this monitor: Super + " + root.selectedNumber
               color: root.panelDim
               wrapMode: Text.WordWrap
               font.family: root.panelFont
@@ -491,327 +372,415 @@ BarWidget {
 
           PanelSeparator { foreground: root.panelForeground }
 
-          Column {
-            id: focusSection
-            width: parent.width
-            spacing: Style.spacing.labelGap
-
-            // Empty means the number stays, so the stored character is the whole
-            // setting. The last one used is remembered here rather than in the
-            // config, so switching to Color and back does not make you type it
-            // again, and switching away does not leave a value behind that would
-            // outlive the panel.
-            readonly property string mark: root.service ? String(root.service.focusMark) : ""
-            readonly property string defaultMark: root.service ? String(root.service.defaultFocusMark) : "\u25cf"
-            property string lastMark: focusSection.defaultMark
-            property bool editing: false
-
-            onMarkChanged: if (mark !== "") lastMark = mark
-
-            PanelSectionHeader {
-              text: "ACTIVE WORKSPACE"
-              foreground: root.panelForeground
-              fontFamily: root.panelFont
-            }
-
-            RowLayout {
-              width: parent.width
-              spacing: Style.spacing.controlGap
-
-              Button {
-                Layout.alignment: Qt.AlignVCenter
-                text: "Color"
-                bordered: true
-                selected: focusSection.mark === ""
-                foreground: root.panelForeground
-                fontFamily: root.panelFont
-                onClicked: {
-                  focusSection.editing = false
-                  if (root.service) root.service.setFocusMark("")
-                }
-              }
-
-              // One button doing two jobs, so the character does not need a row
-              // of its own: off, it says what it does; on, it shows the character
-              // it is painting, and clicking it again turns it into the field
-              // that edits it.
-              Button {
-                Layout.alignment: Qt.AlignVCenter
-                visible: !focusSection.editing
-                text: focusSection.mark === "" ? "Replace" : focusSection.mark
-                bordered: true
-                selected: focusSection.mark !== ""
-                foreground: root.panelForeground
-                fontFamily: root.panelFont
-                onClicked: {
-                  if (focusSection.mark === "") {
-                    if (root.service) root.service.setFocusMark(focusSection.lastMark)
-                  } else {
-                    focusSection.editing = true
-                  }
-                }
-              }
-
-              TextField {
-                id: focusMarkEditor
-                Layout.preferredWidth: Style.space(60)
-                Layout.alignment: Qt.AlignVCenter
-                visible: focusSection.editing
-                placeholderText: focusSection.defaultMark
-                horizontalAlignment: Text.AlignHCenter
-                foreground: root.panelForeground
-                accent: Color.accent
-                // Tracked rather than trusting the first focus change: the
-                // panel primes its own key catcher when it opens, so a field
-                // that has not been typed in yet can see focus taken away from
-                // it and must not read that as the user leaving.
-                property bool everFocused: false
-
-                onVisibleChanged: if (visible) {
-                  text = focusSection.mark
-                  everFocused = false
-                  forceActiveFocus()
-                  selectAll()
-                }
-                // Leaving the field is as good as pressing Enter: there is no
-                // Save button beside it any more, and losing the edit because
-                // you clicked elsewhere would be worse than keeping it.
-                onActiveFocusChanged: {
-                  if (activeFocus) everFocused = true
-                  else if (everFocused && focusSection.editing) accepted()
-                }
-                onAccepted: {
-                  focusSection.editing = false
-                  if (root.service) root.service.setFocusMark(focusMarkEditor.text)
-                }
-                Keys.onPressed: function(event) {
-                  if (event.matches(StandardKey.Paste)) {
-                    root.pasteInto(focusMarkEditor)
-                    event.accepted = true
-                  }
-                }
-              }
-
-              // Only worth showing once the character is something you picked:
-              // there is nothing to undo while it is off or still the default.
-              PanelActionButton {
-                Layout.alignment: Qt.AlignVCenter
-                visible: focusSection.mark !== "" && focusSection.mark !== focusSection.defaultMark
-                iconText: "󰕌"
-                tooltipText: "Back to the default mark"
-                foreground: root.panelForeground
-                hoverColor: Color.accent
-                fontFamily: root.panelFont
-                onClicked: {
-                  focusSection.editing = false
-                  if (root.service) root.service.setFocusMark(focusSection.defaultMark)
-                }
-              }
-
-              Item { Layout.fillWidth: true }
-            }
-
-            Text {
-              width: parent.width
-              text: "The workspace you are looking at is drawn in the bar's own color, the ones holding windows in the accent. Replace shows a character in place of its number instead — click it again to change the character to any text, emoji, or Nerd Font glyph. A workspace that scrolls or floats shows that layout's icon either way, and clicking the one you are on changes its layout."
-              color: root.panelDim
-              wrapMode: Text.WordWrap
-              font.family: root.panelFont
-              font.pixelSize: Style.font.caption
-            }
+          DisclosureButton {
+            id: appearanceToggle
+            text: "Bar appearance"
           }
-
-          PanelSeparator { foreground: root.panelForeground }
-
-          Text {
-            width: parent.width
-            text: "Drag a chip along its row to reorder it. Click a chip to rename it."
-            color: root.panelDim
-            wrapMode: Text.WordWrap
-            font.family: root.panelFont
-            font.pixelSize: Style.font.caption
-          }
-
-          PanelSeparator { foreground: root.panelForeground }
 
           Column {
             width: parent.width
-            spacing: Style.space(8)
+            spacing: Style.space(12)
+            visible: appearanceToggle.expanded
 
-            PanelSectionHeader {
-              text: "PROFILES"
-              foreground: root.panelForeground
-              fontFamily: root.panelFont
+            Column {
+              id: focusSection
+              width: parent.width
+              spacing: Style.spacing.labelGap
+
+              // Empty means the number stays, so the stored character is the whole
+              // setting. The last one used is remembered here rather than in the
+              // config, so switching to Color and back does not make you type it
+              // again, and switching away does not leave a value behind that would
+              // outlive the panel.
+              readonly property string mark: root.service ? String(root.service.focusMark) : ""
+              readonly property string defaultMark: root.service ? String(root.service.defaultFocusMark) : "\u25cf"
+              property string lastMark: focusSection.defaultMark
+              property bool editing: false
+
+              onMarkChanged: if (mark !== "") lastMark = mark
+
+              PanelSectionHeader {
+                text: "ACTIVE WORKSPACE"
+                foreground: root.panelForeground
+                fontFamily: root.panelFont
+              }
+
+              RowLayout {
+                width: parent.width
+                spacing: Style.spacing.controlGap
+
+                Button {
+                  Layout.alignment: Qt.AlignVCenter
+                  focusable: true
+                  text: "Color [3]"
+                  tooltipText: "Keep the workspace number and highlight it with color."
+                  bordered: true
+                  selected: focusSection.mark === ""
+                  foreground: root.panelForeground
+                  fontFamily: root.panelFont
+                  onClicked: {
+                    focusSection.editing = false
+                    if (root.service) root.service.setFocusMark("")
+                  }
+                }
+
+                // One button doing two jobs, so the character does not need a row
+                // of its own: off, it says what it does; on, it shows the character
+                // it is painting, and clicking it again turns it into the field
+                // that edits it.
+                Button {
+                  Layout.alignment: Qt.AlignVCenter
+                  visible: !focusSection.editing
+                  focusable: true
+                  text: "Symbol [" + (focusSection.mark || focusSection.lastMark) + "]"
+                  Layout.maximumWidth: Style.space(180)
+                  tooltipText: focusSection.mark === ""
+                    ? "Show a symbol in place of the number."
+                    : "Click to change the symbol."
+                  bordered: true
+                  selected: focusSection.mark !== ""
+                  foreground: root.panelForeground
+                  fontFamily: root.panelFont
+                  onClicked: {
+                    if (focusSection.mark === "") {
+                      if (root.service) root.service.setFocusMark(focusSection.lastMark)
+                    } else {
+                      focusSection.editing = true
+                    }
+                  }
+                }
+
+                TextField {
+                  id: focusMarkEditor
+                  Layout.preferredWidth: Style.space(60)
+                  Layout.alignment: Qt.AlignVCenter
+                  visible: focusSection.editing
+                  placeholderText: focusSection.defaultMark
+                  horizontalAlignment: Text.AlignHCenter
+                  foreground: root.panelForeground
+                  accent: Color.accent
+                  // Tracked rather than trusting the first focus change: the
+                  // panel primes its own key catcher when it opens, so a field
+                  // that has not been typed in yet can see focus taken away from
+                  // it and must not read that as the user leaving.
+                  property bool everFocused: false
+
+                  onVisibleChanged: if (visible) {
+                    text = focusSection.mark
+                    everFocused = false
+                    forceActiveFocus()
+                    selectAll()
+                  }
+                  // Leaving the field is as good as pressing Enter: there is no
+                  // Save button beside it any more, and losing the edit because
+                  // you clicked elsewhere would be worse than keeping it.
+                  onActiveFocusChanged: {
+                    if (activeFocus) everFocused = true
+                    else if (everFocused && focusSection.editing) accepted()
+                  }
+                  onAccepted: {
+                    focusSection.editing = false
+                    if (root.service) root.service.setFocusMark(focusMarkEditor.text)
+                  }
+                  Keys.onPressed: function(event) {
+                    if (event.matches(StandardKey.Paste)) {
+                      root.pasteInto(focusMarkEditor)
+                      event.accepted = true
+                    }
+                  }
+                }
+
+                // Only worth showing once the character is something you picked:
+                // there is nothing to undo while it is off or still the default.
+                PanelActionButton {
+                  Layout.alignment: Qt.AlignVCenter
+                  visible: focusSection.mark !== "" && focusSection.mark !== focusSection.defaultMark
+                  iconText: "󰕌"
+                  tooltipText: "Back to the default mark"
+                  foreground: root.panelForeground
+                  hoverColor: Color.accent
+                  fontFamily: root.panelFont
+                  onClicked: {
+                    focusSection.editing = false
+                    if (root.service) root.service.setFocusMark(focusSection.defaultMark)
+                  }
+                }
+
+                Item { Layout.fillWidth: true }
+              }
             }
 
             Column {
               width: parent.width
-              spacing: Style.space(8)
+              spacing: Style.spacing.labelGap
+              visible: root.service && root.service.populatedGroupCount > 1
 
-              Repeater {
-                model: root.service ? root.service.savedProfiles : []
+              PanelSectionHeader {
+                text: "MONITOR DIVIDER"
+                foreground: root.panelForeground
+                fontFamily: root.panelFont
+              }
+
+              RowLayout {
+                width: parent.width
+                spacing: Style.spacing.controlGap
+
+                TextField {
+                  id: dividerEditor
+                  Layout.preferredWidth: Style.space(90)
+                  Layout.alignment: Qt.AlignVCenter
+                  text: root.service ? root.service.activeDivider : "|"
+                  placeholderText: "|"
+                  horizontalAlignment: Text.AlignHCenter
+                  foreground: root.panelForeground
+                  accent: Color.accent
+                  onAccepted: saveDividerButton.clicked()
+                  Keys.onPressed: function(event) {
+                    if (event.matches(StandardKey.Paste)) {
+                      root.pasteInto(dividerEditor)
+                      event.accepted = true
+                    }
+                  }
+                }
+
+                Button {
+                  id: saveDividerButton
+                  Layout.alignment: Qt.AlignVCenter
+                  text: "Save"
+                  bordered: true
+                  foreground: root.panelForeground
+                  fontFamily: root.panelFont
+                  onClicked: if (root.service) root.service.setDivider(dividerEditor.text)
+                }
+
+                Item { Layout.fillWidth: true }
+              }
+            }
+          }
+
+          DisclosureButton {
+            id: profilesToggle
+            text: "Profiles (" + (root.service ? root.service.savedProfiles.length : 0) + ")"
+            onExpandedChanged: if (!expanded) {
+              root.expandedProfileId = ""
+              presetsToggle.expanded = false
+            }
+          }
+
+          Column {
+            width: parent.width
+            spacing: Style.space(8)
+            visible: profilesToggle.expanded
+
+            Column {
+              width: parent.width
+              spacing: Style.spacing.labelGap
+              visible: root.service && root.service.activeProfileMode !== "exact"
+
+              PanelSectionHeader {
+                text: "SAVE THIS MONITOR SET"
+                foreground: root.panelForeground
+                fontFamily: root.panelFont
+              }
+
+              RowLayout {
+                width: parent.width
+                spacing: Style.spacing.controlGap
+
+                TextField {
+                  id: profileNameEditor
+                  Layout.fillWidth: true
+                  Layout.alignment: Qt.AlignVCenter
+                  placeholderText: "Profile name for this monitor setup"
+                  text: "My monitor setup"
+                  foreground: root.panelForeground
+                  accent: Color.accent
+                  onAccepted: saveSetupButton.clicked()
+                  Keys.onPressed: function(event) {
+                    if (event.matches(StandardKey.Paste)) {
+                      root.pasteInto(profileNameEditor)
+                      event.accepted = true
+                    }
+                  }
+                }
+
+                Button {
+                  id: saveSetupButton
+                  Layout.alignment: Qt.AlignVCenter
+                  text: "Save setup"
+                  bordered: true
+                  foreground: root.panelForeground
+                  fontFamily: root.panelFont
+                  onClicked: {
+                    if (root.service && root.service.saveCurrentSetup(profileNameEditor.text)) {
+                      profileNameEditor.text = "My monitor setup"
+                      savedFeedback.restart()
+                    }
+                  }
+                }
+              }
+            }
+
+            Repeater {
+              model: root.service ? root.service.savedProfiles : []
+
+              Column {
+                id: profileRow
+                required property var modelData
+                width: parent.width
+                spacing: Style.spacing.labelGap
+
+                readonly property bool isActive: root.service && root.service.activeProfileId === modelData.id
+                readonly property bool isDefault: modelData.mode === "default"
+                readonly property bool expanded: root.expandedProfileId === modelData.id
+                readonly property bool canDelete: !isDefault && root.service && root.service.savedProfiles.length > 1
 
                 RowLayout {
-                  id: profileRow
-                  required property var modelData
                   width: parent.width
                   spacing: Style.spacing.controlGap
 
-                  readonly property bool isActive: root.service && root.service.activeProfileId === profileRow.modelData.id
-                  readonly property bool isDefault: profileRow.modelData.mode === "default"
-                  readonly property bool onlyProfile: root.service && root.service.savedProfiles.length <= 1
-
                   Text {
-                    Layout.alignment: Qt.AlignVCenter
+                    Layout.fillWidth: true
+                    textFormat: Text.PlainText
                     text: profileRow.modelData.name
+                    elide: Text.ElideRight
                     color: root.panelForeground
                     font.family: root.panelFont
-                    font.pixelSize: Style.font.caption
+                    font.pixelSize: Style.font.bodySmall
                     font.bold: profileRow.isActive
                   }
 
                   Text {
-                    Layout.fillWidth: true
-                    Layout.alignment: Qt.AlignVCenter
-                    visible: !profileRow.isDefault
-                    text: profileRow.modelData.monitors.join(", ")
+                    visible: profileRow.isActive
+                    text: "Active"
                     color: root.panelDim
-                    elide: Text.ElideRight
                     font.family: root.panelFont
                     font.pixelSize: Style.font.caption
                   }
 
-                  Item { Layout.fillWidth: profileRow.isDefault }
+                  PanelActionButton {
+                    focusable: true
+                    iconText: "⋯"
+                    tooltipText: profileRow.expanded ? "Hide profile details" : "Show profile details"
+                    foreground: root.panelForeground
+                    fontFamily: root.panelFont
+                    onClicked: root.expandedProfileId = profileRow.expanded ? "" : profileRow.modelData.id
+                  }
+                }
 
-                  // A pill rather than a parenthetical: the full explanation
-                  // only needs to be read once, on hover, not every time the
-                  // list is glanced at.
-                  Rectangle {
-                    Layout.alignment: Qt.AlignVCenter
-                    visible: profileRow.isDefault
-                    implicitWidth: defaultLabel.implicitWidth + Style.space(10)
-                    implicitHeight: defaultLabel.implicitHeight + Style.space(4)
-                    radius: height / 2
-                    color: Qt.rgba(root.panelForeground.r, root.panelForeground.g, root.panelForeground.b, 0.10)
+                RowLayout {
+                  width: parent.width
+                  visible: profileRow.expanded
+                  spacing: Style.spacing.controlGap
 
-                    Text {
-                      id: defaultLabel
-                      anchors.centerIn: parent
-                      text: "DEFAULT"
-                      color: root.panelDim
-                      font.family: root.panelFont
-                      font.pixelSize: Style.font.caption
-                      font.bold: true
-                    }
-
-                    HoverHandler { id: defaultHover }
-
-                    PanelToolTip {
-                      visible: defaultHover.hovered
-                      text: "Fallback for any monitor set no other profile names. Cannot be deleted here."
-                      fontFamily: root.panelFont
-                    }
+                  Text {
+                    Layout.fillWidth: true
+                    textFormat: Text.PlainText
+                    text: profileRow.isDefault ? "Default for unmatched monitor setups"
+                      : profileRow.modelData.monitors.join("\n")
+                    wrapMode: Text.Wrap
+                    color: root.panelDim
+                    font.family: root.panelFont
+                    font.pixelSize: Style.font.caption
                   }
 
-                  // The default profile cannot be deleted from here at all —
-                  // removeProfile() refuses it regardless of how many other
-                  // profiles exist, since it is what every unrecognised
-                  // monitor set falls back to.
-                  PanelActionButton {
-                    Layout.alignment: Qt.AlignVCenter
-                    visible: !profileRow.isDefault && !profileRow.onlyProfile
-                    iconText: "󰆴"
-                    tooltipText: "Delete this profile"
-                    foreground: root.panelForeground
-                    hoverColor: root.bar ? root.bar.urgent : Color.urgent
+                  Button {
+                    visible: profileRow.canDelete
+                    text: "Delete profile"
+                    bordered: true
+                    focusable: true
+                    foreground: root.bar ? root.bar.urgent : Color.urgent
                     fontFamily: root.panelFont
-                    onClicked: if (root.service) root.service.removeProfile(profileRow.modelData.id)
+                    onClicked: if (root.service) {
+                      root.expandedProfileId = ""
+                      root.service.removeProfile(profileRow.modelData.id)
+                    }
                   }
                 }
               }
             }
-          }
 
-          PanelSeparator { foreground: root.panelForeground }
-
-          Column {
-            width: parent.width
-            spacing: Style.space(8)
-
-            PanelSectionHeader {
-              text: "DEFAULT PROFILE PRESETS"
-              foreground: root.panelForeground
-              fontFamily: root.panelFont
+            DisclosureButton {
+              id: presetsToggle
+              text: "Default profile presets"
             }
 
             Column {
               width: parent.width
               spacing: Style.space(8)
-              visible: root.service && root.service.monitorPresets.length > 0
 
-              Repeater {
-                model: root.service ? root.service.monitorPresets : []
+              visible: presetsToggle.expanded
 
-                RowLayout {
-                  required property var modelData
-                  width: parent.width
-                  spacing: Style.spacing.controlGap
+              Column {
+                width: parent.width
+                spacing: Style.space(8)
+                visible: root.service && root.service.monitorPresets.length > 0
 
-                  Text {
-                    Layout.fillWidth: true
-                    Layout.alignment: Qt.AlignVCenter
-                    text: modelData.description + "  (" + modelData.workspaces.join(", ") + ")"
-                      + (modelData.connected ? "" : "  — not connected")
-                    color: root.panelDim
-                    elide: Text.ElideRight
-                    font.family: root.panelFont
-                    font.pixelSize: Style.font.caption
-                  }
+                Repeater {
+                  model: root.service ? root.service.monitorPresets : []
 
-                  PanelActionButton {
-                    Layout.alignment: Qt.AlignVCenter
-                    iconText: "󰆴"
-                    tooltipText: "Forget this monitor's preset"
-                    foreground: root.panelForeground
-                    hoverColor: root.bar ? root.bar.urgent : Color.urgent
-                    fontFamily: root.panelFont
-                    onClicked: if (root.service) root.service.forgetMonitor(modelData.description)
-                  }
-                }
-              }
-            }
+                  RowLayout {
+                    required property var modelData
+                    width: parent.width
+                    spacing: Style.spacing.controlGap
 
-            RowLayout {
-              width: parent.width
-              spacing: Style.spacing.controlGap
+                    Text {
+                      Layout.fillWidth: true
+                      Layout.alignment: Qt.AlignVCenter
+                      textFormat: Text.PlainText
+                      text: modelData.description + "  (" + modelData.workspaces.join(", ") + ")"
+                        + (modelData.connected ? "" : "  — not connected")
+                      color: root.panelDim
+                      elide: Text.ElideRight
+                      font.family: root.panelFont
+                      font.pixelSize: Style.font.caption
+                    }
 
-              TextField {
-                id: presetDescriptionEditor
-                Layout.fillWidth: true
-                Layout.alignment: Qt.AlignVCenter
-                placeholderText: "Monitor description"
-                foreground: root.panelForeground
-                accent: Color.accent
-                onAccepted: addPresetButton.clicked()
-                Keys.onPressed: function(event) {
-                  if (event.matches(StandardKey.Paste)) {
-                    root.pasteInto(presetDescriptionEditor)
-                    event.accepted = true
+                    PanelActionButton {
+                      Layout.alignment: Qt.AlignVCenter
+                      iconText: "󰆴"
+                      tooltipText: "Forget this monitor's preset"
+                      foreground: root.panelForeground
+                      hoverColor: root.bar ? root.bar.urgent : Color.urgent
+                      fontFamily: root.panelFont
+                      onClicked: if (root.service) root.service.forgetMonitor(modelData.description)
+                    }
                   }
                 }
               }
 
-              Button {
-                id: addPresetButton
-                Layout.alignment: Qt.AlignVCenter
-                text: "Add preset"
-                bordered: true
-                tooltipText: "Chooses which workspaces a monitor shows, by description, before it is ever connected."
-                foreground: root.panelForeground
-                fontFamily: root.panelFont
-                onClicked: {
-                  if (root.service && root.service.addMonitorPreset(presetDescriptionEditor.text)) {
-                    presetDescriptionEditor.text = ""
+              RowLayout {
+                width: parent.width
+                spacing: Style.spacing.controlGap
+
+                TextField {
+                  id: presetDescriptionEditor
+                  Layout.fillWidth: true
+                  Layout.alignment: Qt.AlignVCenter
+                  placeholderText: "Monitor description"
+                  foreground: root.panelForeground
+                  accent: Color.accent
+                  onAccepted: addPresetButton.clicked()
+                  Keys.onPressed: function(event) {
+                    if (event.matches(StandardKey.Paste)) {
+                      root.pasteInto(presetDescriptionEditor)
+                      event.accepted = true
+                    }
+                  }
+                }
+
+                Button {
+                  id: addPresetButton
+                  Layout.alignment: Qt.AlignVCenter
+                  text: "Add preset"
+                  bordered: true
+                  tooltipText: "Chooses which workspaces a monitor shows, by description, before it is ever connected."
+                  foreground: root.panelForeground
+                  fontFamily: root.panelFont
+                  onClicked: {
+                    if (root.service && root.service.addMonitorPreset(presetDescriptionEditor.text)) {
+                      presetDescriptionEditor.text = ""
+                    }
                   }
                 }
               }
@@ -822,10 +791,6 @@ BarWidget {
     }
   }
 
-  // One monitor of the active profile: identity header, inline add button, and
-  // the draggable chip row. Chips are laid out flush with the header text; the
-  // insertion marker is drawn inside the chip cells rather than as extra
-  // spacer items, so nothing shifts sideways while a drag is in flight.
   Process {
     id: pasteProcess
     command: ["wl-paste", "--no-newline"]
@@ -843,12 +808,36 @@ BarWidget {
     }
   }
 
+  component DisclosureButton: Button {
+    property bool expanded: false
+
+    width: parent.width
+    iconText: expanded ? "▾" : "▸"
+    leftAlign: true
+    focusable: true
+    foreground: root.panelForeground
+    fontFamily: root.panelFont
+    onClicked: expanded = !expanded
+  }
+
+  // The insertion marker is painted inside each chip cell so the row
+  // does not shift sideways while a drag is in flight.
   component MonitorCard: Rectangle {
     id: card
     required property var group
 
     readonly property string name: String(card.group.name)
     readonly property string description: String(card.group.description)
+    readonly property string monitorModel: {
+      var monitors = Hyprland.monitors.values
+      for (var i = 0; i < monitors.length; i++) {
+        if (monitors[i].name === card.group.name) {
+          var info = monitors[i].lastIpcObject
+          return String(info && info.model || "")
+        }
+      }
+      return ""
+    }
     readonly property int workspaceCount: card.group.workspaces.length
     readonly property bool dropActive: root.dropMonitor === card.description
     // Nothing in the config assigns this monitor: the default profile handed it
@@ -952,11 +941,21 @@ BarWidget {
         Text {
           Layout.fillWidth: true
           Layout.alignment: Qt.AlignVCenter
-          text: card.description
+          textFormat: Text.PlainText
+          text: card.monitorModel
           color: root.panelDim
           elide: Text.ElideRight
           font.family: root.panelFont
           font.pixelSize: Style.font.caption
+
+          HoverHandler { id: monitorHover }
+
+          PanelToolTip {
+            visible: monitorHover.hovered
+            width: Math.min(implicitWidth, card.width)
+            text: card.description
+            fontFamily: root.panelFont
+          }
         }
 
         PanelActionButton {
@@ -1085,6 +1084,7 @@ BarWidget {
               Text {
                 id: chipLabel
                 anchors.centerIn: parent
+                textFormat: Text.PlainText
                 text: String(chipCell.modelData.label)
                 color: root.panelForeground
                 font.bold: chipCell.focused
@@ -1109,8 +1109,8 @@ BarWidget {
               HoverHandler { id: chipHover }
 
               PanelToolTip {
-                visible: chipHover.hovered && chipCell.renamed
-                text: "Workspace " + chipCell.number + " \u2014 shown as \"" + chipCell.modelData.label + "\""
+                visible: chipHover.hovered && !chipDrag.drag.active
+                text: "Click to rename · Drag to reorder"
                 fontFamily: root.panelFont
               }
 
