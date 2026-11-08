@@ -823,6 +823,7 @@ BarWidget {
     leftAlign: true
     focusable: true
     foreground: root.panelForeground
+    background: Qt.rgba(foreground.r, foreground.g, foreground.b, 0.09)
     fontFamily: root.panelFont
     onClicked: expanded = !expanded
 
