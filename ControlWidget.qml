@@ -809,15 +809,28 @@ BarWidget {
   }
 
   component DisclosureButton: Button {
+    id: disclosure
     property bool expanded: false
 
     width: parent.width
-    iconText: expanded ? "▾" : "▸"
+    horizontalPadding: Style.spacing.controlGap
     leftAlign: true
     focusable: true
     foreground: root.panelForeground
     fontFamily: root.panelFont
     onClicked: expanded = !expanded
+
+    Text {
+      textFormat: Text.PlainText
+      anchors.right: parent.right
+      anchors.rightMargin: disclosure.horizontalPadding
+      anchors.verticalCenter: parent.verticalCenter
+      text: "󰅀"
+      rotation: disclosure.expanded ? 180 : 0
+      color: root.panelDim
+      font.family: disclosure.fontFamily
+      font.pixelSize: Style.font.body
+    }
   }
 
   // The insertion marker is painted inside each chip cell so the row
